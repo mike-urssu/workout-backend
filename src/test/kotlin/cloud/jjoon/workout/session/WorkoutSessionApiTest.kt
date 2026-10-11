@@ -426,12 +426,12 @@ class WorkoutSessionApiTest {
     }
 
     @Test
-    fun `workout-media BR-005 완료할 때 고른 사진·동영상이 10개를 넘거나 이 세션의 것이 아니면 입력값 오류다`() {
+    fun `workout-media BR-005 완료할 때 고른 사진·동영상이 5개를 넘거나 이 세션의 것이 아니면 입력값 오류다`() {
         val session = startedSessionId()
         addSet(session, sessionExerciseId(session, operator.exerciseId("벤치프레스", me.id)), """{"weight": 60, "repetitions": 10}""")
-        val eleven = (1..11).joinToString(",") { "\"${UUID.randomUUID()}\"" }
+        val six = (1..6).joinToString(",") { "\"${UUID.randomUUID()}\"" }
 
-        complete(session, """{"mediaIds": [$eleven]}""").andExpect {
+        complete(session, """{"mediaIds": [$six]}""").andExpect {
             status { isBadRequest() }
             jsonPath("$.code") { value("VALIDATION_FAILED") }
         }

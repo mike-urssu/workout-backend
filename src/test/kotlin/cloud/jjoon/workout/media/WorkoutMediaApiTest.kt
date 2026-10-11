@@ -145,14 +145,14 @@ class WorkoutMediaApiTest {
     }
 
     @Test
-    fun `ERR-003 한 세션에 10개까지 올릴 수 있다`() {
+    fun `ERR-003 한 세션에 5개까지 올릴 수 있다`() {
         val photo = jpeg()
-        repeat(10) { upload(session, file("$it.jpg", photo)).andExpect { status { isCreated() } } }
+        repeat(5) { upload(session, file("$it.jpg", photo)).andExpect { status { isCreated() } } }
 
-        upload(session, file("11.jpg", photo)).andExpect {
+        upload(session, file("6.jpg", photo)).andExpect {
             status { isBadRequest() }
             jsonPath("$.details.limit") { value("COUNT") }
-            jsonPath("$.message") { value("사진·동영상은 10개까지 올릴 수 있습니다.") }
+            jsonPath("$.message") { value("사진·동영상은 5개까지 올릴 수 있습니다.") }
         }
     }
 

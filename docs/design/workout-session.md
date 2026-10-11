@@ -104,7 +104,7 @@ workout-common 2장을 따른다.
 
 #### REQ-WORKOUT-002 운동 세션 완료 (API-WORKOUT-003)
 1. (A), (B).
-2. 요청 본문 `mediaIds`를 검증한다(생략 시 빈 목록, 10개 이하, 중복 없음). 위반 시 400 `VALIDATION_FAILED` (workout-media BR-005).
+2. 요청 본문 `mediaIds`를 검증한다(생략 시 빈 목록, 5개 이하, 중복 없음). 위반 시 400 `VALIDATION_FAILED` (workout-media BR-005).
 3. 트랜잭션 시작, (E) — 상태가 `COMPLETED`면 409 `WORKOUT_SESSION_ALREADY_COMPLETED` (ERR-008).
 4. 세션의 세트 수를 센다. 0이면 409 `WORKOUT_SESSION_HAS_NO_SETS` (BR-012, ERR-012).
 5. 사진·동영상을 붙인다: workout-media 3.2 (2) — `mediaIds`가 모두 이 세션의 미디어인지 확인(아니면 400), 순서 저장, 고르지 않은 임시 미디어 행 삭제와 그 파일의 커밋 후 삭제 등록.
@@ -345,14 +345,14 @@ Validation
 | 필드 | 타입 | 필수 | 규칙 | 근거 |
 |-----|-----|-----|-----|-----|
 | sessionId (경로) | UUID | Y | UUID 형식 | 공통 5장 |
-| mediaIds | UUID 배열 | N | 0~10개, 중복 없음, 모두 이 세션의 미디어 | workout-media BR-005, BR-002 |
+| mediaIds | UUID 배열 | N | 0~5개, 중복 없음, 모두 이 세션의 미디어 | workout-media BR-005, BR-002 |
 
 메모(`memo`)는 받지 않는다 (v0.6, 요구사항 TODO-020).
 
 Errors
 | HTTP | 에러 코드 | 조건 | 관련 |
 |------|----------|-----|-----|
-| 400 | VALIDATION_FAILED | `mediaIds` 11개 이상·중복·이 세션의 미디어가 아님 | workout-media BR-005 |
+| 400 | VALIDATION_FAILED | `mediaIds` 6개 이상·중복·이 세션의 미디어가 아님 | workout-media BR-005 |
 | 401 | UNAUTHORIZED | 인증 없음 | ERR-001 |
 | 403 | FORBIDDEN | 다른 사용자의 세션 | ERR-003 |
 | 404 | WORKOUT_SESSION_NOT_FOUND | 세션 없음 | ERR-009 |

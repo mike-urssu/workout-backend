@@ -130,7 +130,7 @@ class WorkoutMediaService(
         if (session.userId != userId) throw BusinessException(ErrorCode.FORBIDDEN) // ERR-004
         if (session.status == WorkoutSessionStatus.COMPLETED) throw BusinessException(ErrorCode.WORKOUT_SESSION_NOT_EDITABLE) // BR-002
         if (mediaRepository.countByWorkoutSessionId(session.id!!) >= MAX_COUNT) {
-            throw limitExceeded("COUNT", MAX_COUNT.toLong(), "사진·동영상은 10개까지 올릴 수 있습니다.") // BR-005
+            throw limitExceeded("COUNT", MAX_COUNT.toLong(), "사진·동영상은 ${MAX_COUNT}개까지 올릴 수 있습니다.") // BR-005
         }
     }
 
@@ -139,7 +139,7 @@ class WorkoutMediaService(
 
     companion object {
         private val log = LoggerFactory.getLogger(WorkoutMediaService::class.java)
-        const val MAX_COUNT = 10
+        const val MAX_COUNT = 5
         private const val MAX_PHOTO_BYTES = 20L * 1024 * 1024 // DEC-MEDIA-005
         private const val MAX_VIDEO_BYTES = 100L * 1024 * 1024
         private const val MAX_VIDEO_SECONDS = 60L

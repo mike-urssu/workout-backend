@@ -1,12 +1,13 @@
 # 오운완 인증 사진·동영상 설계 문서
 
-- 문서 버전: v0.2
+- 문서 버전: v0.3
 - 변경 이력:
   - v0.1 — 운동 완료 시 첨부(REQ-MEDIA-001). 코드 반영됨
   - v0.2 (2026-10-09) — 목록(REQ-MEDIA-002, workout-history API-WORKOUT-008), 미리보기·원본 내려받기(API-MEDIA-002·003), 미디어 뷰어(MEDIA-001) 설계. D-TODO-MEDIA-001 결정. 요구사항 v0.4 반영(부록 C-1 ~ 3 해결)
+  - v0.3 (2026-10-11) — 요구사항 v0.5 반영(BR-005 세션당 5개). 업로드·완료 검증과 오류 문구를 5개로. 조건 검사 `ck_workout_media_sort_order`는 1~10 그대로 둔다(DEC-MEDIA-008)
 - 작성일: 2026-10-09
 - 상태: 초안
-- 요구사항: `docs/requirements/workout-media.md` (v0.4)
+- 요구사항: `docs/requirements/workout-media.md` (v0.5)
 - 공통 설계: `docs/design/architecture.md` (v0.10)
 - 관련 설계: `docs/design/workout-session.md` (v0.8, 운동 세션 완료 API-WORKOUT-003·세션 정리), `workout-history.md` (날짜별 기록 API-WORKOUT-008), `workout-common.md` (테이블·공통 규칙)
 - Figma: `workout-complete-popup` (18:4), `workout-history`의 오운완 인증(5:31), `media-viewer-popup` (18:168)
@@ -52,7 +53,7 @@
 | BR-002 | 완료할 때만 붙임, 이후 추가·삭제 불가 | 1.5, 3.4, 3.5 | | |
 | BR-003 | 섞어서 여러 개, 순서 유지 | 3.5, workout_media.sort_order | | |
 | BR-004 | 세션·계정 삭제 시 파일 삭제 | 6.4, 공통 7.7·10.7 | | |
-| BR-005 | 10개, 사진 20MB, 동영상 100MB·1분 | 3.5, 5.3 Validation | | |
+| BR-005 | 5개, 사진 20MB, 동영상 100MB·1분 | 3.5, 5.3 Validation, DEC-MEDIA-008 | | |
 | BR-006 | JPEG·PNG·HEIC, MP4·MOV | 3.5, 5.3 Validation | | |
 | BR-007 | 하나라도 실패하면 완료하지 않음, 일부만 남기지 않음 | 3.2, 3.5, 4.2 | | |
 | ERR-001 | 로그인 없이 요청 | 8.2 UNAUTHORIZED | | |
@@ -109,7 +110,7 @@ App ──complete(mediaIds)──▶ WorkoutSessionController ─▶ WorkoutSes
 #### REQ-MEDIA-001 (1) 사진·동영상 임시 올리기 (API-MEDIA-001)
 1. 인증 필터에서 userId (없으면 401, ERR-001). 방치된 세션 정리(workout-session REQ-WORKOUT-006)를 먼저 실행한다.
 2. 요청에 파일 부분 `file`이 없거나 비었으면 400 `VALIDATION_FAILED`.
-3. **잠금 없이** 세션을 조회한다. 없으면 404 `WORKOUT_SESSION_NOT_FOUND`, 다른 사용자 것이면 403 `FORBIDDEN`(ERR-004), `COMPLETED`면 409 `WORKOUT_SESSION_NOT_EDITABLE`(ERR-005, BR-002). 이 세션의 임시 파일이 이미 10개면 400 `MEDIA_LIMIT_EXCEEDED`(`details.limit` = `COUNT`, BR-005). 오래 걸리는 처리 전에 빨리 거절하기 위한 확인이다.
+3. **잠금 없이** 세션을 조회한다. 없으면 404 `WORKOUT_SESSION_NOT_FOUND`, 다른 사용자 것이면 403 `FORBIDDEN`(ERR-004), `COMPLETED`면 409 `WORKOUT_SESSION_NOT_EDITABLE`(ERR-005, BR-002). 이 세션의 임시 파일이 이미 5개면 400 `MEDIA_LIMIT_EXCEEDED`(`details.limit` = `COUNT`, BR-005). 오래 걸리는 처리 전에 빨리 거절하기 위한 확인이다.
 4. 파일을 임시 파일로 받는다. 미디어 처리기로 **내용을 보고** 형식을 판별한다(요청의 형식 표시는 믿지 않는다, 공통 5장).
    - 허용 형식(BR-006): 사진 JPEG·PNG·HEIC, 동영상 MP4·MOV. 그 밖이거나 읽을 수 없으면 400 `MEDIA_UNSUPPORTED_TYPE` (ERR-002).
    - 크기(BR-005): 사진 20MB(20 × 1024 × 1024 바이트) 이하, 동영상 100MB(100 × 1024 × 1024 바이트) 이하. 넘으면 400 `MEDIA_LIMIT_EXCEEDED`(`details.limit` = `FILE_SIZE`) (ERR-003).
@@ -122,7 +123,7 @@ App ──complete(mediaIds)──▶ WorkoutSessionController ─▶ WorkoutSes
 
 #### REQ-MEDIA-001 (2) 고른 파일을 붙이며 완료 (workout-session API-WORKOUT-003)
 처리 흐름 전체는 workout-session 설계 3.2 REQ-WORKOUT-002. 이 기능에 해당하는 단계:
-1. 본문 `mediaIds`(생략 시 빈 목록)를 검증한다: 10개 이하(BR-005), 중복 없음. 위반 시 400 `VALIDATION_FAILED`.
+1. 본문 `mediaIds`(생략 시 빈 목록)를 검증한다: 5개 이하(BR-005), 중복 없음. 위반 시 400 `VALIDATION_FAILED`.
 2. 세션 변경 잠금 뒤, `mediaIds`가 모두 **이 세션의** `workout_media` 행인지 확인한다. 아니면 400 `VALIDATION_FAILED`(`errors[].field` = `mediaIds`).
 3. `mediaIds`의 순서대로 `sort_order` = 1, 2, … 를 저장한다(BR-003).
 4. 이 세션의 나머지 `workout_media` 행(고르지 않았거나 실패 후 남은 임시 파일)을 삭제하고, 그 파일 키들을 **커밋 후 작업**으로 지운다(BR-007).
@@ -171,7 +172,7 @@ App                              API                                   DB / 오�
 | BR-002 | 완료할 때만 붙임, 이후 추가·삭제 불가 | 서비스, API 설계 | 업로드는 진행 중 세션에만(완료면 409). 붙이기는 완료 요청 안에서만. 완료 후 추가·삭제 API를 두지 않음 | 409 WORKOUT_SESSION_NOT_EDITABLE |
 | BR-003 | 섞어서 여러 개, 순서 유지 | 서비스, DB | 완료 요청의 `mediaIds` 순서로 `sort_order` 저장. 유일 `ux_workout_media_session_order` | — |
 | BR-004 | 세션·계정 삭제 시 파일 삭제 | DB, 서비스, 운영 절차 | 행은 참조(함께 삭제). 파일은 세션을 지우는 모든 경로에서 커밋 후 작업으로 세션 접두어 삭제(6.4). 계정 삭제는 공통 10.7 절차 | — |
-| BR-005 | 10개, 사진 20MB, 동영상 100MB·1분 | 서비스, DB | 업로드 시 임시 파일 수·크기·길이 확인, 완료 시 `mediaIds` 10개 이하. 조건 검사 `ck_workout_media_sort_order`(1~10), `ck_workout_media_file_size` | 400 MEDIA_LIMIT_EXCEEDED / VALIDATION_FAILED |
+| BR-005 | 5개, 사진 20MB, 동영상 100MB·1분 | 서비스, DB | 업로드 시 임시 파일 수·크기·길이 확인, 완료 시 `mediaIds` 5개 이하. 조건 검사 `ck_workout_media_sort_order`(1~10, 줄이기 전 기록 때문에 그대로, DEC-MEDIA-008), `ck_workout_media_file_size` | 400 MEDIA_LIMIT_EXCEEDED / VALIDATION_FAILED |
 | BR-006 | JPEG·PNG·HEIC, MP4·MOV | 미디어 처리기, DB | 내용으로 형식 판별. 조건 검사 `ck_workout_media_content_type` | 400 MEDIA_UNSUPPORTED_TYPE |
 | BR-007 | 하나라도 실패하면 완료 안 함, 일부만 남기지 않음 | 앱, 서비스 | 앱은 모든 업로드가 성공해야 완료를 부른다(4.2). 서버는 완료 때 고르지 않은 임시 파일을, 취소·자동 정리 때 모든 임시 파일을 지운다. DB 기록 실패 시 방금 저장한 파일을 지운다 | — |
 
@@ -197,7 +198,7 @@ App                              API                                   DB / 오�
 #### workout-session WO-002 운동 완료 팝업 — 오운완 인증 영역
 - 진입 조건: 홈에서 운동 종료 (workout-session 4.2)
 - 필요 데이터: 진행 중 세션 ID (workout-session API-WORKOUT-002)
-- 사용자 입력: "사진 또는 동영상 추가"로 앨범에서 고르거나 바로 촬영(요구사항 TODO-006). 앱은 고를 때 10개까지만 받고, 형식(JPEG·PNG·HEIC·MP4·MOV)과 크기·길이를 미리 확인해 넘는 파일은 고르지 않게 안내한다(서버가 다시 확인한다).
+- 사용자 입력: "사진 또는 동영상 추가"로 앨범에서 고르거나 바로 촬영(요구사항 TODO-006). 앱은 "고른 개수/5"를 보여주고 고를 때 5개까지만 받고, 형식(JPEG·PNG·HEIC·MP4·MOV)과 크기·길이를 미리 확인해 넘는 파일은 고르지 않게 안내한다(서버가 다시 확인한다).
 - API 호출:
   - **저장하기**: 아직 올리지 않은 파일을 고른 순서대로 하나씩 API-MEDIA-001. 파일마다 진행 상황을 보여준다(NFR-PERF-001). 받은 `id`를 고른 순서대로 기억한다. 모두 성공하면 API-WORKOUT-003 `{ "mediaIds": [고른 순서] }`.
   - **건너뛰기**: API-WORKOUT-003 `{ "mediaIds": [] }` (이미 올린 임시 파일은 서버가 지운다).
@@ -206,7 +207,7 @@ App                              API                                   DB / 오�
 - 실패 처리 (업로드 중 하나라도 실패하면 **완료를 부르지 않는다**, BR-007):
   - 503 `SERVICE_UNAVAILABLE` / 네트워크 오류 → "올리지 못했어요" + 다시 시도(실패한 파일부터) / 건너뛰기 (ERR-006)
   - 400 `MEDIA_UNSUPPORTED_TYPE` → "지원하지 않는 파일이에요" + 그 파일을 빼고 다시 저장 (ERR-002)
-  - 400 `MEDIA_LIMIT_EXCEEDED` → `details.limit`에 따라 "10개까지", "사진은 20MB까지", "동영상은 100MB·1분까지" 안내 (ERR-003)
+  - 400 `MEDIA_LIMIT_EXCEEDED` → `details.limit`에 따라 "5개까지", "사진은 20MB까지", "동영상은 100MB·1분까지" 안내 (ERR-003)
   - 409 `WORKOUT_SESSION_NOT_EDITABLE` → 6시간이 지나 자동으로 완료된 경우. "운동이 자동으로 완료되어 사진을 붙일 수 없어요" 후 홈 (ERR-005)
   - 404 `WORKOUT_SESSION_NOT_FOUND` → 다른 기기에서 취소된 경우. 안내 후 홈
 - 로딩 상태: 업로드·완료 중 저장하기·건너뛰기 비활성, 파일별 진행 표시
@@ -283,7 +284,7 @@ Validation
 | file | 파일 | Y | 내용 기준 JPEG·PNG·HEIC(사진) 또는 MP4·MOV(동영상) | BR-006 |
 | file 크기 | — | — | 사진 ≤ 20 × 1024 × 1024 바이트, 동영상 ≤ 100 × 1024 × 1024 바이트 | BR-005 |
 | 동영상 길이 | — | — | ≤ 60초 | BR-005 |
-| 세션의 임시 파일 수 | — | — | 올리기 전 9개 이하 (올린 뒤 10개 이하) | BR-005 |
+| 세션의 임시 파일 수 | — | — | 올리기 전 4개 이하 (올린 뒤 5개 이하) | BR-005 |
 
 Errors
 | HTTP | 에러 코드 | 조건 | 관련 |
@@ -359,7 +360,7 @@ users 1 ── N workout_session 1 ── N workout_media
 - PK: `id`
 - 참조(함께 삭제): `workout_session_id → workout_session.id` — 세션이 지워지면 행도 지워진다(BR-004). 파일은 6.4
 - 유일 `ux_workout_media_session_order`: `(workout_session_id, sort_order)` — 붙은 순서가 겹치지 않게. `sort_order`가 없는 행끼리는 비교하지 않는다 (BR-003)
-- 조건 검사 `ck_workout_media_sort_order`: `sort_order`가 없거나 1 이상 10 이하 (BR-005)
+- 조건 검사 `ck_workout_media_sort_order`: `sort_order`가 없거나 1 이상 10 이하. BR-005의 5개는 서비스가 확인하고, 이 검사는 상한을 줄이기 전에 붙은 기록까지 담는 바깥 한계다 (BR-005, DEC-MEDIA-008)
 - 조건 검사 `ck_workout_media_file_size`: `file_size`가 1 이상 104,857,600(100 × 1024 × 1024) 이하. 사진의 20MB 상한은 형식별이라 서비스가 확인한다 (BR-005)
 - 조건 검사 `ck_workout_media_type`: `media_type`과 `content_type`이 맞는다(PHOTO ↔ image/*, VIDEO ↔ video/*) (BR-006)
 - 파일 키는 저장하지 않는다. `users/{userId}/workout-sessions/{workout_session_id}/media/{id}/` 아래 `original`과 `preview.jpg`로 정해진다(계산할 수 있는 값은 저장하지 않는다, DEC-MEDIA-002). 원본의 형식은 `content_type`
@@ -428,7 +429,7 @@ workout-common 설계 6.5의 스키마 변경 3 다음에 적용한다.
 |-------------|----------|------|-------|--------|----------|
 | ERR-001 | UNAUTHORIZED (공통) | 401 | 로그인이 필요합니다. | — | 인증 필터 |
 | ERR-002 | MEDIA_UNSUPPORTED_TYPE | 400 | 지원하지 않는 파일 형식입니다. 사진은 JPEG·PNG·HEIC, 동영상은 MP4·MOV만 올릴 수 있습니다. | — | 미디어 처리기 |
-| ERR-003 | MEDIA_LIMIT_EXCEEDED | 400 | 상한별 문장: "사진·동영상은 10개까지 올릴 수 있습니다." / "사진은 20MB까지 올릴 수 있습니다." / "동영상은 100MB까지 올릴 수 있습니다." / "동영상은 1분까지 올릴 수 있습니다." | `limit`: `COUNT` \| `FILE_SIZE` \| `DURATION`, `max`: 10 \| 바이트 수 \| 60 | WorkoutMediaService.upload |
+| ERR-003 | MEDIA_LIMIT_EXCEEDED | 400 | 상한별 문장: "사진·동영상은 5개까지 올릴 수 있습니다." / "사진은 20MB까지 올릴 수 있습니다." / "동영상은 100MB까지 올릴 수 있습니다." / "동영상은 1분까지 올릴 수 있습니다." | `limit`: `COUNT` \| `FILE_SIZE` \| `DURATION`, `max`: 5 \| 바이트 수 \| 60 | WorkoutMediaService.upload |
 | ERR-004 | FORBIDDEN (공통) | 403 | 접근할 수 없는 데이터입니다. | — | WorkoutMediaService 소유자 확인 |
 | ERR-005 | WORKOUT_SESSION_NOT_EDITABLE (workout-common) | 409 | 완료된 운동 기록은 수정할 수 없습니다. | — | WorkoutMediaService.upload |
 | ERR-006 | SERVICE_UNAVAILABLE (공통) | 503 | 일시적으로 처리할 수 없습니다. 잠시 후 다시 시도해 주세요. | — | 파일 저장소 |
@@ -476,7 +477,7 @@ workout-common 설계 6.5의 스키마 변경 3 다음에 적용한다.
 순서 0 ~ 5는 v0.1 반영으로 끝났다(2026-10-09).
 
 ### 10.3 테스트 포인트
-- BR-005 경계값: 사진 20MB / 20MB+1바이트, 동영상 100MB / 100MB+1바이트, 60초 / 61초, 임시 파일 10개째 성공·11개째 400 `COUNT`.
+- BR-005 경계값: 사진 20MB / 20MB+1바이트, 동영상 100MB / 100MB+1바이트, 60초 / 61초, 임시 파일 5개째 성공·6개째 400 `COUNT`, 완료 `mediaIds` 5개 200·6개 400.
 - BR-006: 확장자를 `.jpg`로 바꾼 GIF·PDF는 400 (내용으로 판별).
 - BR-007: 업로드 3개 중 1개 실패 후 완료하지 않으면 세션은 진행 중. 이후 `mediaIds` 2개로 완료하면 나머지 1개 행·파일이 지워진다.
 - BR-002: 완료된 세션에 업로드 409. 완료 요청의 `mediaIds`에 다른 세션 ID → 400.
@@ -497,6 +498,7 @@ workout-common 설계 6.5의 스키마 변경 3 다음에 적용한다.
 | DEC-MEDIA-005 | 크기 상한의 MB는 1024 × 1024 바이트 | 휴대폰과 앱이 보여주는 크기 표기와 맞춘다 | 1,000,000 바이트: 앱 표시와 몇 % 차이 |
 | DEC-MEDIA-006 | 미리보기·원본 응답에 `Cache-Control: private, max-age=31536000, immutable` | 파일은 올린 뒤 바뀌지 않는다(BR-002). 앱이 한 번 받은 파일을 다시 받지 않아 목록이 빠르고(NFR-PERF-001) 서버를 거치는 전송이 준다(공통 DEC-ARCH-014의 한계 완화). `private`라 공용 캐시에는 남지 않는다 | 캐시 없음: 달력에서 날짜를 오갈 때마다 다시 받음 |
 | DEC-MEDIA-007 | 원본은 `Range` 요청을 지원하고 저장소의 범위 읽기로 넘긴다 | 동영상 재생기는 범위 요청으로 앞부분부터 재생하고 넘겨 보기를 한다. 100MB 동영상을 다 받은 뒤 재생하지 않아도 된다 | 전체만 지원: 긴 동영상의 첫 재생이 늦고 넘겨 보기가 안 됨 |
+| DEC-MEDIA-008 | 세션당 개수를 5개로 줄여도(요구사항 v0.5) 조건 검사 `ck_workout_media_sort_order`는 1~10으로 두고, 5개는 업로드·완료 검증에서 지킨다 | 줄이기 전에 6~10개를 붙여 완료한 기록이 있으면 검사를 1~5로 바꾸는 스키마 변경이 실패한다. 그 기록은 고칠 수 없고 그대로 보여준다(요구사항 8.2). 새로 붙는 행은 모두 완료 검증(5개 이하)을 거친다 | 검사를 1~5로 바꿈: 기존 기록을 지우거나 순서를 바꿔야 함 / 새 행만 검사하는 제약: DB에 따라 지원이 다르고 얻는 것이 없음 |
 
 ## 부록 B. 설계 미결정 사항
 - **D-TODO-MEDIA-001** ~~날짜별 목록, 크게 보기, 없는 파일 오류, 미디어 뷰어 연계~~ **결정됨 (v0.2):** 3.2, 4.2, API-MEDIA-002·003, workout-history API-WORKOUT-008

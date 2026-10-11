@@ -2,6 +2,7 @@ package cloud.jjoon.workout.session.controller
 
 import cloud.jjoon.workout.common.error.BusinessException
 import cloud.jjoon.workout.common.error.ErrorCode
+import cloud.jjoon.workout.media.service.WorkoutMediaService
 import cloud.jjoon.workout.session.service.ExpiredSessionCleaner
 import cloud.jjoon.workout.session.service.SessionExerciseResponse
 import cloud.jjoon.workout.session.service.WorkoutSessionResponse
@@ -156,7 +157,7 @@ class WorkoutSessionController(
 }
 
 /** The photos and videos to attach, in display order (workout-media BR-003, BR-005). */
-data class CompleteWorkoutSessionRequest(@field:Size(max = 10) val mediaIds: List<UUID>?)
+data class CompleteWorkoutSessionRequest(@field:Size(max = WorkoutMediaService.MAX_COUNT) val mediaIds: List<UUID>?)
 
 data class AddExerciseRequest(@field:NotNull val exerciseId: UUID?)
 
