@@ -248,6 +248,7 @@ class WorkoutMediaApiTest {
             status { isOk() }
             content { contentType(MediaType.IMAGE_JPEG) }
             header { string("Accept-Ranges", "bytes") }
+            header { longValue("Content-Length", photo.size.toLong()) }
         }.andReturn().response.contentAsByteArray
         assertEquals(photo.toList(), whole.toList())
 
