@@ -1,6 +1,6 @@
 # Let's Workout 공통 설계 문서
 
-- 문서 버전: v0.14
+- 문서 버전: v0.15
 - 작성일: 2026-10-05
 - 상태: 초안
 - 적용 대상: 모든 기능 설계 문서(`docs/design/<기능>.md`)가 이 문서를 따른다.
@@ -18,6 +18,7 @@
   - v0.12 (2026-10-09) — DB를 compose 안의 전용 컨테이너 대신 서버에 이미 떠 있는 PostgreSQL 컨테이너(`postgres`, 네트워크 `postgresql`)로 바꿈. Jenkins 기반 이미지 단계의 GHCR 로그인 방식(10.8)
   - v0.13 (2026-10-09) — 운동 기록 설계를 요구사항 분리에 맞춰 `workout-common`·`workout-session`·`workout-exercise`·`workout-history`로 나눔. 통계 설계(`workout-stats`)를 위해 값 여러 개인 쿼리 파라미터 규칙(5장) 추가
   - v0.14 (2026-10-10) — 운동 종목 관리(`workout-exercise-manage`)를 위해 제약 종류 "유일(대소문자 무시)"(6.3, 10.1)와, 애플리케이션과 DB가 함께 행을 만드는 테이블의 ID 규칙(6.2, DEC-ARCH-019) 추가
+  - v0.15 (2026-10-12) — 오브젝트 저장소 제품을 SeaweedFS에서 RustFS 1.0.1로 교체(DEC-ARCH-020). 운영 사용자와 저장된 파일이 없어 옮길 데이터가 없다. 앱 코드는 S3 API만 쓰므로 바뀌지 않고(DEC-ARCH-014), 테스트 컨테이너(10.1)·compose 네트워크(10.8)·D-TODO-ARCH-007만 바뀐다
 
 ---
 
@@ -58,9 +59,9 @@
 | GitHub Container Registry (GHCR) | — | 사용자 결정. 이미지 저장소 | — |
 | Jenkins (Multibranch Pipeline) | — | 사용자 결정. 모든 브랜치 테스트, main만 이미지 배포 (10.8) | — |
 | Docker Compose | — | 서버 1대에 앱과 DB를 함께 띄운다. 배포 = 이미지 태그 교체 후 재기동 (10.8) | Kubernetes: 지금 규모에 운영 부담이 큼 |
-| Testcontainers (PostgreSQL, SeaweedFS) | 저장소 설정, SeaweedFS는 **추가** | 테스트가 운영과 같은 DB 엔진과 같은 오브젝트 저장소에서 돈다. DB 제약과 트리거, 파일 저장·삭제까지 검증 | 내장 DB(H2): 운영 DB 전용 기능을 검증할 수 없음 / 파일 저장소 가짜 구현: S3 호환성 차이를 놓침 |
-| SeaweedFS (S3 호환 API) | 서버에서 이미 운영 중 | 사용자 결정. 파일을 DB 밖에 두어 DB 크기와 백업을 가볍게 한다. S3 API로만 접근해 다른 S3 호환 저장소로 옮기기 쉽다 (DEC-ARCH-014) | 앱 서버 디스크에 직접 저장: 서버를 늘리면 파일을 공유할 수 없음 / DB에 파일 저장: DB와 백업이 커짐 |
-| AWS SDK for Java 2.x (S3 클라이언트) | **추가**, 구현 시 최신 2.x로 고정 | S3 API 표준 클라이언트. 접속 주소를 SeaweedFS로 바꿔 쓴다 (DEC-ARCH-014) | SeaweedFS 전용 HTTP API(filer): 저장소를 바꾸면 코드를 다시 써야 함 |
+| Testcontainers (PostgreSQL, RustFS) | 저장소 설정, RustFS는 **추가** | 테스트가 운영과 같은 DB 엔진과 같은 오브젝트 저장소에서 돈다. DB 제약과 트리거, 파일 저장·삭제까지 검증 | 내장 DB(H2): 운영 DB 전용 기능을 검증할 수 없음 / 파일 저장소 가짜 구현: S3 호환성 차이를 놓침 |
+| RustFS (S3 호환 API) | 1.0.1 (`rustfs/rustfs:1.0.1`) | 사용자 결정(v0.15에 SeaweedFS에서 교체, DEC-ARCH-020). 파일을 DB 밖에 두어 DB 크기와 백업을 가볍게 한다. S3 API로만 접근해 다른 S3 호환 저장소로 옮기기 쉽다 (DEC-ARCH-014) | 앱 서버 디스크에 직접 저장: 서버를 늘리면 파일을 공유할 수 없음 / DB에 파일 저장: DB와 백업이 커짐 |
+| AWS SDK for Java 2.x (S3 클라이언트) | **추가**, 구현 시 최신 2.x로 고정 | S3 API 표준 클라이언트. 접속 주소를 RustFS로 바꿔 쓴다 (DEC-ARCH-014) | 저장소 제품 전용 API: 저장소를 바꾸면 코드를 다시 써야 함 |
 | FFmpeg (`ffmpeg`, `ffprobe` 명령) | 7.1 (Debian trixie 패키지, D-TODO-ARCH-008 결정) | 사용자 결정(미리보기는 서버가 만든다). 동영상 첫 장면 추출, 동영상 길이 확인, HEIC 등 사진 축소를 한 도구로 처리한다 (DEC-ARCH-015) | JVM 이미지 라이브러리: HEIC·동영상을 읽지 못함 / JavaCV: 네이티브 라이브러리를 앱에 묶어 이미지가 커지고 arm64 확인이 필요 |
 
 ### 1.5 설계 원칙
@@ -151,7 +152,7 @@
 - 네트워크: 클라이언트와 서버 사이는 HTTPS만 허용한다. TLS는 서버의 Traefik이 종료하고 `https://workout-api.jjoon.cloud`를 앱으로 전달한다(10.8).
 - DB 접근: 애플리케이션과 운영자만 접근한다. 운영자 접근 경로와 권한은 배포 환경에서 정한다(7.7, D-TODO-ARCH-002).
 - 배포: CI 서버가 테스트를 통과한 커밋의 컨테이너 이미지를 레지스트리에 올리고, 서버 1대에 접속해 그 이미지로 앱을 교체한 뒤 기동을 확인한다. DB는 같은 서버에 따로 운영 중인 PostgreSQL 컨테이너(`postgres`)를 쓰고, 그 안의 `workout` DB와 계정은 미리 만들어 둔다. 상세는 10.8
-- 오브젝트 저장소: 같은 서버에서 따로 운영 중인 SeaweedFS를 쓴다. 앱 컨테이너는 서버 내부 네트워크로 S3 API에 접근하고, 저장소는 외부에 공개하지 않는다. 접속 정보는 D-TODO-ARCH-007
+- 오브젝트 저장소: 같은 서버에 따로 띄운 오브젝트 저장소 컨테이너를 쓴다(제품은 1.4). 앱 컨테이너는 서버 내부 네트워크로 S3 API에 접근하고, 저장소는 외부에 공개하지 않는다. 접속 정보는 D-TODO-ARCH-007
 - 남은 결정: DB와 파일 백업, 운영자 DB 접근 경로 (D-TODO-ARCH-002)
 
 ### 2.5 데이터 흐름
@@ -468,7 +469,7 @@ API 요청: Authorization: Bearer <로그인 토큰>
 | 파일 업로드 (5장) | `MultipartFile`. 서버 전체 상한 `spring.servlet.multipart.max-file-size`·`max-request-size` = `110MB`(기능 상한 100MB보다 조금 크게 두어, 기능 상한 초과를 서비스가 정확한 에러 코드로 알리게 한다). 초과 시 `MaxUploadSizeExceededException` → 400 |
 | 파일 내려받기 (5장) | `ResponseEntity<StreamingResponseBody>`로 S3 `GetObject` 스트림을 그대로 흘린다. `Content-Type`·`Content-Length` 지정. `Range` 헤더는 `HttpRange.parseRanges`로 해석해 `GetObject`의 `range`로 넘기고 206·`Content-Range`로 응답 |
 | 서비스가 미리 넣는 기준 데이터의 ID (DEC-ARCH-018) | 스키마 변경 스크립트의 `INSERT`에서 PostgreSQL 18 `uuidv7()` |
-| API 수준 통합 테스트 | MockMvc + Testcontainers PostgreSQL(`TestcontainersConfiguration`). 파일을 다루는 테스트는 SeaweedFS 컨테이너(`chrislusf/seaweedfs`, `server -s3`)를 함께 띄운다. 미디어 처리 테스트는 실행 환경에 FFmpeg가 있어야 한다(D-TODO-ARCH-008) |
+| API 수준 통합 테스트 | MockMvc + Testcontainers PostgreSQL(`TestcontainersConfiguration`). 파일을 다루는 테스트는 RustFS 컨테이너(`rustfs/rustfs:1.0.1`, 접속 키는 환경 변수 `RUSTFS_ACCESS_KEY`·`RUSTFS_SECRET_KEY`, `/health` 응답을 기다림)를 함께 띄운다. 미디어 처리 테스트는 실행 환경에 FFmpeg가 있어야 한다(D-TODO-ARCH-008) |
 | 테스트 인증 | 테스트 픽스처가 `users`·`login_session` 행을 직접 넣고 그 토큰을 `Authorization` 헤더로 보낸다 |
 
 ### 10.2 패키지 구조
@@ -543,7 +544,7 @@ DELETE FROM users WHERE login_id = 'demo.user';
 
 ```sh
 # 계정 삭제 2단계: 오브젝트 저장소의 사용자 파일 삭제 (S3 호환 CLI 예. 접속 정보는 D-TODO-ARCH-007)
-aws s3 rm --recursive "s3://<버킷>/users/<사용자 ID>/" --endpoint-url "<SeaweedFS S3 주소>"
+aws s3 rm --recursive "s3://<버킷>/users/<사용자 ID>/" --endpoint-url "<RustFS S3 주소>"
 ```
 파일 삭제를 빠뜨리고 계정을 먼저 지웠다면, 지운 사용자 ID로 같은 명령을 실행하면 된다(DB는 그 파일을 더 이상 가리키지 않는다).
 
@@ -553,7 +554,7 @@ aws s3 rm --recursive "s3://<버킷>/users/<사용자 ID>/" --endpoint-url "<Sea
 |-----|-----|
 | `Jenkinsfile` | Test(`./gradlew clean test`, 테스트 결과 수집) → main만: Base image(`deploy/base-image`가 마지막 성공 빌드 뒤 바뀌었거나 레지스트리에 없을 때만 `ghcr.io/<owner>/workout-backend:21-ffmpeg7`을 `--pull`로 다시 만들어 푸시) → Publish image(`./gradlew jib`로 `ghcr.io/<owner>/workout-backend:<버전>-<커밋 12자리>`와 `:latest` 푸시) → Deploy(SSH로 compose 파일·`release.env` 전송 후 `pull`·`up -d`) → Verify(서버에서 `GET /api/v1/auth/session`이 401을 줄 때까지 최대 60초 확인) |
 | `build.gradle.kts`의 `version`·`jib` | `version`은 시맨틱 버전이고, 이미지 태그 `<version>-<커밋 12자리>`의 앞부분이 된다. 기반은 `ghcr.io/mike-urssu/workout-backend:21-ffmpeg7`(`deploy/base-image/Dockerfile`, 가져올 때도 `GHCR_USER`/`GHCR_TOKEN`으로 인증), `linux/arm64` 이미지(운영 서버가 Apple Silicon + Colima), 일반 사용자(UID 501, GID 20)로 실행, 포트 8080. 이미지 이름은 CI가 `-Djib.to.image`로, 레지스트리 인증은 환경 변수 `GHCR_USER`/`GHCR_TOKEN`으로 넘긴다 |
-| `deploy/compose.yaml` | `app` 하나(이미지 `${IMAGE}:${IMAGE_TAG}`). 서버에 이미 있는 외부 네트워크 세 개에 붙는다: `proxy`(Traefik이 `workout-api.jjoon.cloud`를 받아 전달, 진입점 `websecure`, 인증서 `letsencrypt`), `postgresql`(DB 컨테이너 `postgres`, 접속은 `POSTGRES_HOST`(기본 `postgres`)·`POSTGRES_DB`·`POSTGRES_USER`·`POSTGRES_PASSWORD`), `seaweedfs`(S3 API, `STORAGE_S3_*`). 8080은 서버 localhost에만 열어 Verify에 쓴다 |
+| `deploy/compose.yaml` | `app` 하나(이미지 `${IMAGE}:${IMAGE_TAG}`). 서버에 이미 있는 외부 네트워크 세 개에 붙는다: `proxy`(Traefik이 `workout-api.jjoon.cloud`를 받아 전달, 진입점 `websecure`, 인증서 `letsencrypt`), `postgresql`(DB 컨테이너 `postgres`, 접속은 `POSTGRES_HOST`(기본 `postgres`)·`POSTGRES_DB`·`POSTGRES_USER`·`POSTGRES_PASSWORD`), `rustfs`(S3 API, `STORAGE_S3_*`). 8080은 서버 localhost에만 열어 Verify에 쓴다 |
 | `deploy/base-image/Dockerfile` | 앱 컨테이너의 기반 이미지: Debian trixie + OpenJDK 21 JRE + FFmpeg 7.1(아이폰 HEIC 타일 사진을 읽는다. Ubuntu 기반 eclipse-temurin의 FFmpeg 6.1은 못 읽음). CI의 Base image 단계가 이 디렉터리가 바뀔 때 만들어 올린다. 보안 업데이트만 받으려면 Dockerfile을 고치거나(주석 포함) 레지스트리의 태그를 지워 다시 만들게 한다 |
 | `deploy/.env.example` | 서버의 `<DEPLOY_DIR>/.env` 견본(DB 이름·계정·비밀번호, 오브젝트 저장소 접속 정보). 실제 파일은 저장소에 넣지 않는다 |
 
@@ -587,12 +588,13 @@ Jenkins 준비:
 | DEC-ARCH-011 | 인증은 로그인 토큰 하나(256비트 난수, 서버에는 해시만 저장) + 요청마다 서버의 로그인 행 조회. 재발급(Refresh) 없음. 인증 필터는 Spring Security에 직접 만든 필터 하나로 구현 | 사용자 결정. 요구사항이 즉시 종료(auth BR-005, BR-011), 종료 사유 구분(auth ERR-005, 006, 008), 사용할 때마다 30일 연장(auth BR-006)을 요구해 어느 방식이든 요청마다 서버 조회가 필요하다. 서버 조회를 하면 JWT의 장점(조회 없는 검증)이 사라지고, 토큰 하나면 재발급 흐름이 필요 없다 | JWT + Refresh + 서버 조회: 서버 조회를 하면서 토큰 두 개와 재발급 흐름만 남아 가장 복잡 / JWT만(짧은 만료): 즉시 종료·사유 구분을 지킬 수 없음 |
 | DEC-ARCH-012 | `users.id`는 예외적으로 DB가 UUIDv7을 생성한다 | 운영자가 SQL로 계정을 만들기 때문에(auth 요구사항 8.2) 애플리케이션이 ID를 만들 수 없다. 같은 UUIDv7 형식을 유지한다 | 운영자가 외부 도구로 UUID 생성 후 입력: 실수와 형식 불일치 위험 |
 | DEC-ARCH-013 | 운영자 SQL로 바뀌는 데이터에 따른 규칙(PIN 변경 시 로그인 종료)은 DB 자동 동작(트리거)으로 보장한다. 그 밖의 규칙은 애플리케이션에 둔다 | 운영자가 SQL 한 줄을 빠뜨려도 규칙이 지켜진다(auth BR-011). 애플리케이션을 거치지 않는 변경은 애플리케이션이 알 수 없다 | 운영 절차에 로그인 종료 SQL을 함께 적기: 운영자가 빠뜨리면 규칙이 깨짐 / 요청마다 PIN 비교: 로그인 행에 PIN 정보를 따로 보관해야 함 |
-| DEC-ARCH-014 | 사용자 파일은 오브젝트 저장소(SeaweedFS)에 S3 API로 저장하고, 저장소는 공개하지 않는다. 앱은 API로 올리고 내려받는다 | 사용자 결정(SeaweedFS). S3 API는 표준이라 저장소를 바꿔도 코드가 그대로다. 비공개로 두면 소유자 확인(7.4, workout-media BR-001)을 API 한 곳에서 할 수 있고, 저장소 주소를 외부에 열 필요가 없다. **한계:** 파일이 앱 서버를 거치므로 서버 대역폭과 메모리를 쓴다(스트리밍으로 처리). 부하가 커지면 서명된 임시 주소로 바꾼다 | 서명된 임시 주소(presigned URL)로 앱이 저장소와 직접 주고받기: 저장소를 외부에 공개해야 하고, 업로드 검증(형식·길이·미리보기)을 올린 뒤에 따로 해야 함 / 앱 서버 디스크: 서버를 늘리면 공유 불가 |
+| DEC-ARCH-014 | 사용자 파일은 오브젝트 저장소에 S3 API로 저장하고, 저장소는 공개하지 않는다. 앱은 API로 올리고 내려받는다 | 사용자 결정(제품은 1.4, v0.15에 교체됨 — DEC-ARCH-020). S3 API는 표준이라 저장소를 바꿔도 코드가 그대로다. 비공개로 두면 소유자 확인(7.4, workout-media BR-001)을 API 한 곳에서 할 수 있고, 저장소 주소를 외부에 열 필요가 없다. **한계:** 파일이 앱 서버를 거치므로 서버 대역폭과 메모리를 쓴다(스트리밍으로 처리). 부하가 커지면 서명된 임시 주소로 바꾼다 | 서명된 임시 주소(presigned URL)로 앱이 저장소와 직접 주고받기: 저장소를 외부에 공개해야 하고, 업로드 검증(형식·길이·미리보기)을 올린 뒤에 따로 해야 함 / 앱 서버 디스크: 서버를 늘리면 공유 불가 |
 | DEC-ARCH-015 | 미리보기는 서버가 FFmpeg 명령으로 업로드 요청 안에서 만든다. FFmpeg는 앱 컨테이너의 기반 이미지에 넣는다 | 사용자 결정(서버가 만든다). 동영상 첫 장면, 동영상 길이, HEIC 사진을 한 도구로 다룰 수 있다. 업로드 요청 안에서 만들면 "올렸는데 미리보기가 없는" 중간 상태가 없다 | 별도 작업 큐에서 나중에 생성: 중간 상태와 재시도 처리가 필요 / JavaCV: 앱 이미지가 크게 늘고 arm64 확인 필요 |
 | DEC-ARCH-016 | 파일은 먼저 저장하고 DB에 기록한다. 삭제는 DB 먼저, 파일은 커밋 후 작업으로. 파일 키는 `users/{userId}/` 아래 | DB와 오브젝트 저장소는 하나의 트랜잭션으로 묶을 수 없다. 이 순서면 실패해도 "DB가 가리키는데 파일이 없는" 상태가 생기지 않는다. 남을 수 있는 것은 DB가 가리키지 않는 파일뿐이라 사용자에게 보이지 않는다. 사용자 접두어 덕분에 계정 삭제 때 파일을 한 번에 지울 수 있다(7.7) | DB 먼저 기록 후 파일 저장: 저장 실패 시 DB가 없는 파일을 가리킴 / 주기적인 고아 파일 정리 작업: 지금 규모에 불필요한 작업 실행 환경 |
 | DEC-ARCH-017 | 오브젝트 저장소 장애는 503 `SERVICE_UNAVAILABLE` | 입력이나 상태 문제가 아니라 다시 시도하면 되는 일시 장애라는 것을 앱이 구분할 수 있다(workout-media ERR-006) | 500: 예상하지 못한 오류(버그)와 구분되지 않음 |
 | DEC-ARCH-018 | 서비스가 미리 넣는 기준 데이터(운동 부위·종목)의 행은 스키마 변경 스크립트가 넣고, ID는 DB가 UUIDv7로 만든다 (DEC-ARCH-012의 예외를 기준 데이터로 넓힘) | 애플리케이션을 거치지 않고 스크립트로 넣는 행이라 애플리케이션이 ID를 만들 수 없다. 같은 UUIDv7 형식을 유지한다 | 스크립트에 UUID를 직접 적기: 실수 위험, 형식 확인 어려움 |
 | DEC-ARCH-019 | DB 자동 동작과 애플리케이션이 함께 행을 만드는 테이블은 ID에 DB 기본값(UUIDv7)을 두고, 애플리케이션은 자기가 만드는 행의 ID를 직접 만든다 | 자동 동작은 애플리케이션을 거치지 않아 ID를 받을 수 없다(DEC-ARCH-012와 같은 이유). 애플리케이션 쪽은 기존 규칙(저장 전 생성)을 그대로 쓴다. 두 쪽 모두 UUIDv7이다 | 애플리케이션 행도 DB 생성: 이 테이블만 저장 후 ID를 다시 읽는 방식이 되어 다른 테이블과 달라짐
+| DEC-ARCH-020 | 오브젝트 저장소 제품을 SeaweedFS에서 RustFS 1.0.1로 바꾼다. 서버에는 RustFS 컨테이너 하나(단일 노드)를 띄운다 | 사용자 결정(2026-10-12). 운영 사용자와 저장된 파일이 없어 옮길 데이터가 없고, 서버에 기존 저장소도 없어 "이미 운영 중"이라는 SeaweedFS의 이점이 사라졌다. 서버 1대·소규모 파일에는 단일 바이너리에 접속 키를 환경 변수로만 주는 RustFS가 운영하기 단순하고, 테스트에서 S3 인증 설정 파일과 저장소 준비 대기 재시도가 필요 없어졌다. 앱 코드는 S3 API만 써서 바뀌지 않는다(DEC-ARCH-014). Apache 2.0. **한계:** 1.0 GA가 2026-09-16이라 운영 이력이 짧다. 버전을 `1.0.1`로 고정하고 올릴 때 파일 테스트를 다시 돌린다. 파일 백업은 D-TODO-ARCH-002 | SeaweedFS 유지: 서버 1대 규모에 master·volume·filer 구성과 S3 인증 설정 파일이 부담 / MinIO: 커뮤니티판 바이너리·이미지 배포 중단 / 앱 서버 디스크: 이미 만든 S3 경로를 다시 만들어야 하고 DEC-ARCH-014의 이유가 그대로 남음 |
 
 ## 부록 B. 설계 미결정 사항
 - **D-TODO-ARCH-001** ~~운영 PostgreSQL 버전 결정~~ **결정됨 (v0.6): PostgreSQL 18.** 배포 compose와 테스트(Testcontainers)를 모두 `postgres:18`로 고정했다.
@@ -601,7 +603,7 @@ Jenkins 준비:
 - **D-TODO-ARCH-004** 부하 테스트 도구와 환경. (영향: 9장, 각 기능의 성능 NFR 확인 방법)
 - **D-TODO-ARCH-005** ~~DDL 기반 jOOQ 코드 생성이 PostgreSQL 전용 구문을 읽지 못하면~~ **결정됨 (v0.8, 운동 기록 구현 시 확인):** 부분 인덱스·`uuidv7()` 기본값은 읽는다. `CREATE FUNCTION`(PL/pgSQL)은 Pro 전용이라 `[jooq ignore]` 주석으로 제외하고 `parseIgnoreComments`를 켠다. `timestamptz`는 forcedType으로 `Instant`. 설정은 `build.gradle.kts`의 `jooq` 블록 (영향: DEC-ARCH-002)
 - **D-TODO-ARCH-006** ~~UUIDv7 생성 수단 확정~~ **결정됨 (인증 구현 시 확인):** Spring Boot 4.1.1에 포함된 Hibernate 7.4.5의 `UuidGenerator.Style.VERSION_7`을 쓴다. 라이브러리 추가 없음 (10.1)
-- **D-TODO-ARCH-007** (네트워크는 `seaweedfs`로 결정, v0.11) SeaweedFS 접속 정보: S3 API(`weed s3`)가 켜져 있는지, 앱 컨테이너에서 닿는 주소와 Docker 네트워크 이름, 버킷 이름, 접속 키. SeaweedFS 4.x는 S3 인증 설정(`-s3.config`의 identities, 테스트는 `TestcontainersConfiguration` 참고)이 없으면 서명된 요청을 거절한다. 버킷은 미리 만들어 둔다. 정해지면 10.8의 compose와 `.env.example`에 넣는다. (영향: 2.4, 2.6, 10.7, 10.8)
+- **D-TODO-ARCH-007** (v0.15에 RustFS 기준으로 다시 씀) 운영 서버의 RustFS 컨테이너: 네트워크 `rustfs`, 앱이 닿는 주소 `http://rustfs:9000`, 버킷 `workout`은 미리 만든다(`.env.example`, 10.8 compose에 반영됨). 접속 키는 RustFS의 `RUSTFS_ACCESS_KEY`·`RUSTFS_SECRET_KEY`로 정하고 서버 `.env`의 `STORAGE_S3_*`에 같은 값을 넣는다. 남은 일: 서버에 컨테이너를 띄우고 네트워크·버킷·키를 만드는 것. (영향: 2.4, 2.6, 10.7, 10.8)
 - **D-TODO-ARCH-008** ~~FFmpeg를 넣은 기반 이미지: `eclipse-temurin:21-jre`에 배포판 FFmpeg를 설치한 `linux/arm64` 이미지를 만들어 GHCR에 올리는 방법(Jib은 패키지를 설치하지 못한다), 그 FFmpeg가 HEIC를 읽는지 확인(못 읽으면 libheif 추가), CI 에이전트에 테스트용 FFmpeg 설치. 개발 맥에는 Homebrew FFmpeg 9.0.2를 설치해 테스트를 통과했다(2026-10-09). (영향: 1.4, 10.1, 10.8, workout-media)~~ **결정됨 (v0.11):** Debian trixie 기반 이미지에 배포판 OpenJDK 21과 FFmpeg 7.1.5를 설치(`deploy/base-image/Dockerfile`). Nokia HEIF 샘플(타일 HEIC)로 미리보기 생성을 확인했다. 이미지 크기는 약 1GB(FFmpeg 의존성). 줄여야 하면 FFmpeg 정적 빌드로 바꾼다
 
 ## 부록 C. 요구사항 피드백

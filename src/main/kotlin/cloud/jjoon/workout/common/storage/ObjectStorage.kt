@@ -34,7 +34,7 @@ class ObjectStorage(
 ) {
     private val s3: S3Client = S3Client.builder()
         .endpointOverride(endpoint)
-        .region(Region.US_EAST_1) // SeaweedFS ignores it, the SDK requires one
+        .region(Region.US_EAST_1) // RustFS ignores it, the SDK requires one
         .forcePathStyle(true)
         // Only send checksums S3 requires; S3-compatible stores lag behind AWS's newer checksum headers.
         .requestChecksumCalculation(RequestChecksumCalculation.WHEN_REQUIRED)

@@ -15,10 +15,10 @@ spring:
       # Integer fields reject decimals such as 8.5 instead of truncating them (architecture 5).
       accept-float-as-int: false
 
-# Object storage (SeaweedFS S3 API). Values come from the environment on the server (deploy/compose.yaml).
+# Object storage (RustFS S3 API). Values come from the environment on the server (deploy/compose.yaml).
 storage:
   s3:
-    endpoint: ${STORAGE_S3_ENDPOINT:http://localhost:8333}
+    endpoint: ${STORAGE_S3_ENDPOINT:http://localhost:9000}
     bucket: ${STORAGE_S3_BUCKET:workout}
     access-key: ${STORAGE_S3_ACCESS_KEY:local}
     secret-key: ${STORAGE_S3_SECRET_KEY:local}

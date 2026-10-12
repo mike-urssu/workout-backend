@@ -1,6 +1,6 @@
 # Copied to the server by Jenkins. IMAGE/IMAGE_TAG come from release.env (written by Jenkins),
 # database and storage settings from .env (created once on the server from .env.example).
-# The database and object storage are the PostgreSQL and SeaweedFS containers already running on the server.
+# The database and object storage are the PostgreSQL and RustFS containers already running on the server.
 services:
   app:
     image: ${IMAGE}:${IMAGE_TAG}
@@ -11,7 +11,7 @@ services:
     networks:
       - proxy
       - postgresql
-      - seaweedfs
+      - rustfs
     labels:
       traefik.enable: "true"
       traefik.docker.network: proxy
@@ -34,5 +34,5 @@ networks:
     external: true
   postgresql:
     external: true
-  seaweedfs:
+  rustfs:
     external: true

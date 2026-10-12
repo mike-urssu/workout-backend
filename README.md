@@ -20,9 +20,9 @@
 | 프레임워크 | Spring Boot 4.1 (Web MVC, Security, Validation) |
 | 데이터 접근 | Spring Data JPA(단순 CRUD) + jOOQ(조인·집계 쿼리) |
 | DB / 마이그레이션 | PostgreSQL 18, Flyway |
-| 파일 저장 | SeaweedFS (S3 호환 API, AWS SDK v2) |
+| 파일 저장 | RustFS (S3 호환 API, AWS SDK v2) |
 | 미디어 처리 | FFmpeg 7.1 (`ffmpeg`, `ffprobe`) |
-| 테스트 | JUnit 5, Testcontainers (PostgreSQL, SeaweedFS) |
+| 테스트 | JUnit 5, Testcontainers (PostgreSQL, RustFS) |
 | 빌드 / 배포 | Gradle, Jib, GHCR, Jenkins, Docker Compose, Traefik |
 
 ## 아키텍처
@@ -30,7 +30,7 @@
 ```
 Mobile App ──HTTPS(Bearer token)──▶ Traefik ──▶ Backend API ──▶ PostgreSQL
                                                      │
-                                                     ├──S3 API──▶ SeaweedFS (외부 비공개)
+                                                     ├──S3 API──▶ RustFS (외부 비공개)
                                                      └──────────▶ FFmpeg (미리보기 생성)
 ```
 
@@ -65,7 +65,7 @@ src/main/kotlin/cloud/jjoon/workout/
 | JDK 21 | 필요 | 이미지에 포함 |
 | Docker | 필요 (Testcontainers) | Docker Compose |
 | PostgreSQL 18 | Testcontainers가 자동 실행 | 서버의 기존 `postgres` 컨테이너 |
-| SeaweedFS (S3) | Testcontainers가 자동 실행 | 서버의 기존 SeaweedFS 컨테이너 |
+| RustFS (S3) | Testcontainers가 자동 실행 | 서버의 `rustfs` 컨테이너 |
 | FFmpeg 7.1+ | `PATH`에 필요 (미디어 기능·테스트) | 기반 이미지에 포함 |
 | Traefik | — | HTTPS 종료, `workout-api.jjoon.cloud` 라우팅 |
 
@@ -73,7 +73,7 @@ src/main/kotlin/cloud/jjoon/workout/
 
 ### 로컬 실행
 
-Docker가 실행 중이면 PostgreSQL과 SeaweedFS 컨테이너를 자동으로 띄워 앱을 실행합니다.
+Docker가 실행 중이면 PostgreSQL과 RustFS 컨테이너를 자동으로 띄워 앱을 실행합니다.
 
 ```sh
 ./gradlew bootTestRun
@@ -91,7 +91,7 @@ INSERT INTO users (login_id, pin) VALUES ('demo.user', '123456');
 | 환경 변수 | 설명 |
 |---------|-----|
 | `SPRING_DATASOURCE_URL` / `_USERNAME` / `_PASSWORD` | PostgreSQL 접속 정보 |
-| `STORAGE_S3_ENDPOINT` | S3 주소 (기본 `http://localhost:8333`) |
+| `STORAGE_S3_ENDPOINT` | S3 주소 (기본 `http://localhost:9000`) |
 | `STORAGE_S3_BUCKET` | 버킷 (기본 `workout`) |
 | `STORAGE_S3_ACCESS_KEY` / `STORAGE_S3_SECRET_KEY` | S3 인증 정보 |
 

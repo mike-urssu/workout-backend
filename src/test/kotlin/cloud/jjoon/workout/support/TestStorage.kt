@@ -5,7 +5,6 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider
-import software.amazon.awssdk.core.exception.SdkException
 import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.s3.S3Client
 import software.amazon.awssdk.services.s3.model.BucketAlreadyOwnedByYouException
@@ -27,21 +26,13 @@ class TestStorage(
         .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create(accessKey, secretKey)))
         .build()
 
-    /** SeaweedFS opens its port before the filer is ready, so the first calls may fail for a few seconds. */
+    /** The container is up once its health check answers (TestcontainersConfiguration), so one call is enough. */
     @PostConstruct
     fun createBucket() {
-        repeat(60) {
-            try {
-                s3.createBucket { it.bucket(bucket) }
-                return
-            } catch (e: BucketAlreadyOwnedByYouException) {
-                return
-            } catch (e: SdkException) {
-                if (e.message.orEmpty().contains("BucketAlreadyExists")) return
-                Thread.sleep(500)
-            }
+        try {
+            s3.createBucket { it.bucket(bucket) }
+        } catch (e: BucketAlreadyOwnedByYouException) {
         }
-        error("object storage did not come up")
     }
 
     fun keys(prefix: String = ""): List<String> =
