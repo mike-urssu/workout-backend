@@ -18,6 +18,13 @@ class TestcontainersConfiguration {
         return PostgreSQLContainer(DockerImageName.parse("postgres:18"))
     }
 
+    /**
+     * Docker Desktop sometimes drops the first connection to a container that has just reported ready (EOFException in
+     * Flyway on Jenkins). Without a retry that one failure fails every test sharing the context.
+     */
+    @Bean
+    fun flywayConnectRetries() = DynamicPropertyRegistrar { it.add("spring.flyway.connect-retries") { 5 } }
+
     /** The same object storage as production, reached over its S3 API (architecture 10.1). */
     @Bean
     fun rustfsContainer(): GenericContainer<*> =
