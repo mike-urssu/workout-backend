@@ -19,9 +19,11 @@ import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionTemplate
 import org.springframework.web.multipart.MultipartFile
 import java.nio.file.Files
+import java.nio.file.Path
 import java.time.Clock
 import java.time.Instant
 import java.util.UUID
+import java.util.concurrent.Executors
 
 /** Workout proof photos and videos (docs/design/workout-media.md). */
 @Service
@@ -35,6 +37,10 @@ class WorkoutMediaService(
 ) {
     private val transaction = TransactionTemplate(transactionManager)
 
+    // ponytail: one in-memory queue; a restart drops queued videos and they keep showing the original. Persist the
+    // queue (or re-scan for videos without a display copy) if that starts to matter.
+    private val transcoder = Executors.newSingleThreadExecutor { Thread(it, "media-transcode").apply { isDaemon = true } }
+
     /**
      * Stages one upload (workout-media 3.2 (1)). The slow part — reading, previewing, storing — runs without a lock;
      * only the final insert locks the session and checks it again (DEC-MEDIA-004).
@@ -44,6 +50,8 @@ class WorkoutMediaService(
         checkUploadable(userId, sessionRepository.findByIdOrNull(sessionId))
         val original = Files.createTempFile("media-", null)
         val preview = Files.createTempFile("media-preview-", ".jpg")
+        val display = Files.createTempFile("media-display-", ".jpg")
+        var transcoding = false // the video's temp original then belongs to the transcode job
         try {
             file.transferTo(original)
             val format = processor.detect(original) ?: throw BusinessException(ErrorCode.MEDIA_UNSUPPORTED_TYPE)
@@ -54,15 +62,19 @@ class WorkoutMediaService(
                 val seconds = processor.durationSeconds(original) ?: throw BusinessException(ErrorCode.MEDIA_UNSUPPORTED_TYPE)
                 if (seconds > MAX_VIDEO_SECONDS) throw limitExceeded("DURATION", MAX_VIDEO_SECONDS, "동영상은 1분까지 올릴 수 있습니다.")
             }
-            if (!processor.preview(original, preview)) throw BusinessException(ErrorCode.MEDIA_UNSUPPORTED_TYPE) // unreadable
+            if (!processor.still(original, preview, PREVIEW_MAX_SIDE)) throw BusinessException(ErrorCode.MEDIA_UNSUPPORTED_TYPE) // unreadable
+            if (format.kind == MediaKind.PHOTO && !processor.still(original, display, DISPLAY_MAX_SIDE)) {
+                throw BusinessException(ErrorCode.MEDIA_UNSUPPORTED_TYPE)
+            }
 
             val now = clock.instant()
             val id = WorkoutMedia.newId(now)
-            val keys = listOf(WorkoutMedia.originalKey(userId, sessionId, id), WorkoutMedia.previewKey(userId, sessionId, id))
-            try {
-                storage.put(keys[0], original, format.contentType)
-                storage.put(keys[1], preview, PREVIEW_CONTENT_TYPE)
-                return transaction.execute {
+            val keys = WorkoutMedia.keys(userId, sessionId, id)
+            val response = try {
+                storage.put(WorkoutMedia.originalKey(userId, sessionId, id), original, format.contentType)
+                storage.put(WorkoutMedia.previewKey(userId, sessionId, id), preview, JPEG)
+                if (format.kind == MediaKind.PHOTO) storage.put(WorkoutMedia.displayKey(userId, sessionId, id), display, JPEG)
+                transaction.execute {
                     checkUploadable(userId, sessionRepository.findForUpdateById(sessionId))
                     val media = mediaRepository.save(WorkoutMedia(id, sessionId, format.kind, format.contentType, size.toInt(), now))
                     log.info(
@@ -75,9 +87,39 @@ class WorkoutMediaService(
                 storage.deleteQuietly(keys) // the row was not written, so the files must not stay (architecture 2.6)
                 throw e
             }
+            if (format.kind == MediaKind.VIDEO) {
+                transcodeLater(userId, sessionId, id, original)
+                transcoding = true
+            }
+            return response
+        } finally {
+            if (!transcoding) Files.deleteIfExists(original)
+            Files.deleteIfExists(preview)
+            Files.deleteIfExists(display)
+        }
+    }
+
+    /**
+     * Makes a video's display copy after the upload has answered, so the upload does not wait for it (DEC-MEDIA-010).
+     * Until it is stored, the display API serves the original. The copy is stored before checking that the media
+     * still exists: a cancel or drop that committed earlier is seen here, a later one deletes the copy with the rest.
+     */
+    private fun transcodeLater(userId: UUID, sessionId: UUID, mediaId: UUID, original: Path) = transcoder.execute {
+        val out = Files.createTempFile("media-display-", ".mp4")
+        try {
+            if (!processor.transcode(original, out)) {
+                log.warn("event=workout_media.transcode_failed mediaId={}", mediaId)
+                return@execute
+            }
+            val key = WorkoutMedia.displayKey(userId, sessionId, mediaId)
+            storage.put(key, out, MP4)
+            if (!mediaRepository.existsById(mediaId)) storage.deleteQuietly(listOf(key))
+            else log.info("event=workout_media.transcoded mediaId={} size={}", mediaId, Files.size(out))
+        } catch (e: Exception) {
+            log.warn("event=workout_media.transcode_failed mediaId={}", mediaId, e)
         } finally {
             Files.deleteIfExists(original)
-            Files.deleteIfExists(preview)
+            Files.deleteIfExists(out)
         }
     }
 
@@ -92,25 +134,28 @@ class WorkoutMediaService(
         mediaIds.forEachIndexed { index, id -> staged.getValue(id).sortOrder = index + 1 }
         val dropped = staged.values.filter { it.id !in mediaIds }
         mediaRepository.deleteAll(dropped)
-        val droppedKeys = dropped.flatMap {
-            listOf(WorkoutMedia.originalKey(userId, session.id!!, it.id), WorkoutMedia.previewKey(userId, session.id!!, it.id))
-        }
+        val droppedKeys = dropped.flatMap { WorkoutMedia.keys(userId, session.id!!, it.id) }
         afterCommit { storage.deleteQuietly(droppedKeys) }
     }
 
     /**
-     * API-MEDIA-002, 003: only attached files (their session is completed) of the user's own sessions.
+     * API-MEDIA-002 ~ 004: only attached files (their session is completed) of the user's own sessions.
      * Staged uploads and missing files are 404 (ERR-007), someone else's are 403 (ERR-004).
      */
-    fun download(userId: UUID, mediaId: UUID, original: Boolean, range: String? = null): MediaDownload {
+    fun download(userId: UUID, mediaId: UUID, kind: MediaFile, range: String? = null): MediaDownload {
         val media = mediaRepository.findByIdOrNull(mediaId) ?: throw BusinessException(ErrorCode.MEDIA_NOT_FOUND)
         val session = sessionRepository.findByIdOrNull(media.workoutSessionId)
         if (session == null || session.status != WorkoutSessionStatus.COMPLETED) throw BusinessException(ErrorCode.MEDIA_NOT_FOUND)
         if (session.userId != userId) throw BusinessException(ErrorCode.FORBIDDEN)
-        return if (original) {
-            MediaDownload(media.contentType, storage.open(WorkoutMedia.originalKey(userId, session.id!!, mediaId), range))
-        } else {
-            MediaDownload(PREVIEW_CONTENT_TYPE, storage.open(WorkoutMedia.previewKey(userId, session.id!!, mediaId)))
+        val original = { MediaDownload(media.contentType, storage.open(WorkoutMedia.originalKey(userId, session.id!!, mediaId), range)) }
+        return when (kind) {
+            MediaFile.PREVIEW -> MediaDownload(JPEG, storage.open(WorkoutMedia.previewKey(userId, session.id!!, mediaId)))
+            MediaFile.ORIGINAL -> original()
+            // Not there while a video is still transcoding, or for files uploaded before display copies: the original
+            // stands in, and must not be cached as the display copy (DEC-MEDIA-010).
+            MediaFile.DISPLAY -> storage.openIfExists(WorkoutMedia.displayKey(userId, session.id!!, mediaId), range)
+                ?.let { MediaDownload(if (media.mediaType == MediaKind.PHOTO) JPEG else MP4, it) }
+                ?: original().copy(cacheable = false)
         }
     }
 
@@ -143,9 +188,14 @@ class WorkoutMediaService(
         private const val MAX_PHOTO_BYTES = 20L * 1024 * 1024 // DEC-MEDIA-005
         private const val MAX_VIDEO_BYTES = 100L * 1024 * 1024
         private const val MAX_VIDEO_SECONDS = 60L
-        private const val PREVIEW_CONTENT_TYPE = "image/jpeg"
+        private const val PREVIEW_MAX_SIDE = 640 // DEC-MEDIA-003
+        private const val DISPLAY_MAX_SIDE = 2048 // DEC-MEDIA-010
+        private const val JPEG = "image/jpeg"
+        private const val MP4 = "video/mp4"
     }
 }
+
+enum class MediaFile { PREVIEW, DISPLAY, ORIGINAL }
 
 data class WorkoutMediaResponse(
     val id: UUID,
@@ -159,4 +209,4 @@ data class WorkoutMediaResponse(
     }
 }
 
-data class MediaDownload(val contentType: String, val file: StoredObject)
+data class MediaDownload(val contentType: String, val file: StoredObject, val cacheable: Boolean = true)

@@ -1,7 +1,8 @@
 # 오운완 인증 사진·동영상 설계 문서
 
-- 문서 버전: v0.4
+- 문서 버전: v0.5
 - 변경 이력:
+  - v0.5 (2026-10-20) — iPhone에서 업로드·조회가 느린 문제. 업로드 때 보기용 사본(사진 긴 변 2048 JPEG, 동영상 720p H.264 MP4)을 만들고 미디어 뷰어는 새 API-MEDIA-004로 사본을 본다. 원본은 그대로 두고 앨범 저장에만 쓴다(DEC-MEDIA-010). 앱은 파일을 3개까지 동시에 올린다(DEC-MEDIA-011). 요구사항 변경 없음
   - v0.1 — 운동 완료 시 첨부(REQ-MEDIA-001). 코드 반영됨
   - v0.2 (2026-10-09) — 목록(REQ-MEDIA-002, workout-history API-WORKOUT-008), 미리보기·원본 내려받기(API-MEDIA-002·003), 미디어 뷰어(MEDIA-001) 설계. D-TODO-MEDIA-001 결정. 요구사항 v0.4 반영(부록 C-1 ~ 3 해결)
   - v0.3 (2026-10-11) — 요구사항 v0.5 반영(BR-005 세션당 5개). 업로드·완료 검증과 오류 문구를 5개로. 조건 검사 `ck_workout_media_sort_order`는 1~10 그대로 둔다(DEC-MEDIA-008)
@@ -49,7 +50,7 @@
 |------------|---------|--------------|-----|-------|
 | REQ-MEDIA-001 | 운동 완료 시 사진·동영상 첨부 | 3.2, API-MEDIA-001, workout-session API-WORKOUT-003 `mediaIds`, workout_media | | |
 | REQ-MEDIA-002 | 날짜별 사진·동영상 목록 조회 | 3.2, workout-history API-WORKOUT-008 `media[]` | | |
-| REQ-MEDIA-003 | 사진·동영상 크게 보기 | 3.2, API-MEDIA-003, 4.2 MEDIA-001 | | |
+| REQ-MEDIA-003 | 사진·동영상 크게 보기 | 3.2, API-MEDIA-004, 4.2 MEDIA-001, DEC-MEDIA-010 | | |
 | REQ-MEDIA-004 | 사진·동영상 앨범에 저장 | 3.2, API-MEDIA-003, 4.2 MEDIA-001, DEC-MEDIA-009 | | |
 | BR-001 | 본인만 조회 | 7.2, 공통 2.6(비공개 저장소), 7.4 | | |
 | BR-002 | 완료할 때만 붙임, 이후 추가·삭제 불가 | 1.5, 3.4, 3.5 | | |
@@ -121,11 +122,12 @@ App ──complete(mediaIds)──▶ WorkoutSessionController ─▶ WorkoutSes
    - 허용 형식(BR-006): 사진 JPEG·PNG·HEIC, 동영상 MP4·MOV. 그 밖이거나 읽을 수 없으면 400 `MEDIA_UNSUPPORTED_TYPE` (ERR-002).
    - 크기(BR-005): 사진 20MB(20 × 1024 × 1024 바이트) 이하, 동영상 100MB(100 × 1024 × 1024 바이트) 이하. 넘으면 400 `MEDIA_LIMIT_EXCEEDED`(`details.limit` = `FILE_SIZE`) (ERR-003).
    - 동영상 길이(BR-005): 60초 이하. 넘으면 400 `MEDIA_LIMIT_EXCEEDED`(`details.limit` = `DURATION`) (ERR-003).
-5. 미리보기를 만든다: 사진은 축소, 동영상은 첫 장면. JPEG, 긴 변 640픽셀(원본이 더 작으면 원본 크기) (DEC-MEDIA-003). 만들지 못하면 400 `MEDIA_UNSUPPORTED_TYPE`(손상된 파일로 본다).
-6. 새 미디어 ID를 만들고 파일 저장소에 원본과 미리보기를 저장한다(키 6.2). 저장소 장애면 503 `SERVICE_UNAVAILABLE` (ERR-006). 저장한 키를 기억한다.
+5. 미리보기를 만든다: 사진은 축소, 동영상은 첫 장면. JPEG, 긴 변 640픽셀(원본이 더 작으면 원본 크기) (DEC-MEDIA-003). 사진은 보기용 사본도 만든다: JPEG, 긴 변 2048픽셀 (DEC-MEDIA-010). 만들지 못하면 400 `MEDIA_UNSUPPORTED_TYPE`(손상된 파일로 본다).
+6. 새 미디어 ID를 만들고 파일 저장소에 원본, 미리보기, (사진이면) 보기용 사본을 저장한다(키 6.2). 저장소 장애면 503 `SERVICE_UNAVAILABLE` (ERR-006). 저장한 키를 기억한다.
 7. **트랜잭션**: 세션을 변경 잠금으로 다시 조회해 3의 확인을 다시 한다(그사이 완료·취소·자동 정리됐을 수 있다). 통과하면 `workout_media` 행을 `sort_order` 없이 저장한다.
 8. 7이 실패하면(확인 실패, DB 오류) 6에서 저장한 파일을 지우고 해당 오류를 응답한다(공통 2.6 저장 순서). 임시 파일은 성공·실패와 관계없이 지운다.
 9. 커밋, 로그 `workout_media.uploaded`(userId, sessionId, mediaId, 형식, 크기), 201.
+10. 동영상이면 응답한 뒤 **백그라운드**에서 보기용 사본을 만든다(DEC-MEDIA-010): H.264·AAC MP4, 짧은 변 720픽셀 이하, 30fps 이하, 재생 정보를 파일 앞에 둔다. HDR(HLG·PQ)은 SDR로 바꾼다. 한 번에 하나씩, 낮은 우선순위로. 저장한 **뒤에** 미디어 행이 아직 있는지 확인하고 없으면 사본을 지운다(그사이 취소·고르지 않음으로 지워진 경우. 확인 뒤에 지워지면 6.4의 삭제가 사본까지 지운다). 실패하면 WARN 로그 `workout_media.transcode_failed`만 남기고, 성공하면 `workout_media.transcoded`(mediaId, 크기).
 
 #### REQ-MEDIA-001 (2) 고른 파일을 붙이며 완료 (workout-session API-WORKOUT-003)
 처리 흐름 전체는 workout-session 설계 3.2 REQ-WORKOUT-002. 이 기능에 해당하는 단계:
@@ -137,14 +139,15 @@ App ──complete(mediaIds)──▶ WorkoutSessionController ─▶ WorkoutSes
 
 #### REQ-MEDIA-002 날짜별 사진·동영상 목록 (workout-history API-WORKOUT-008)
 1. 날짜별 기록 처리(workout-history 3.2 REQ-WORKOUT-008)의 5단계에서, 그날 **완료된** 세션의 `workout_media`를 세션 시작 순 → `sort_order` 순으로 조회한다(쿼리 1회). 임시 파일은 진행 중 세션에만 있으므로 들어오지 않는다.
-2. 항목마다 `id`, `mediaType`, `contentType`, `previewUrl` = `/api/v1/media/{id}/preview`, `originalUrl` = `/api/v1/media/{id}/original`을 준다. 파일 자체는 주지 않는다.
+2. 항목마다 `id`, `mediaType`, `contentType`, `previewUrl` = `/api/v1/media/{id}/preview`, `displayUrl` = `/api/v1/media/{id}/display`, `originalUrl` = `/api/v1/media/{id}/original`을 준다. 파일 자체는 주지 않는다.
 
-#### REQ-MEDIA-002, 003 미리보기·원본 내려받기 (API-MEDIA-002, API-MEDIA-003)
+#### REQ-MEDIA-002, 003 미리보기·보기용 사본·원본 내려받기 (API-MEDIA-002 ~ 004)
 1. 인증 필터에서 userId (없으면 401, ERR-001).
 2. `workout_media`와 소속 세션을 조회한다. 없거나, 소속 세션이 진행 중(임시 파일)이면 404 `MEDIA_NOT_FOUND` (ERR-007). 다른 사용자의 세션이면 403 `FORBIDDEN` (ERR-004, BR-001).
 3. 파일 키(6.2)로 오브젝트 저장소에서 읽어 그대로 흘려보낸다(공통 5장 파일 내려받기). 미리보기는 `image/jpeg`, 원본은 저장된 `content_type`.
-4. 원본은 `Range` 요청을 지원한다(206, 동영상 넘겨 보기). 저장소에 범위 읽기로 넘긴다.
-5. 파일은 바뀌지 않으므로 `Cache-Control: private, max-age=31536000, immutable`을 준다(DEC-MEDIA-006). 저장소 장애는 503 (공통 2.6).
+4. 원본과 보기용 사본은 `Range` 요청을 지원한다(206, 동영상 넘겨 보기). 저장소에 범위 읽기로 넘긴다.
+5. 보기용 사본은 사진이면 `image/jpeg`, 동영상이면 `video/mp4`. 사본이 아직 없으면(동영상 변환 중, v0.5 전에 올린 파일) 원본을 대신 준다(DEC-MEDIA-010).
+6. 파일은 바뀌지 않으므로 `Cache-Control: private, max-age=31536000, immutable`을 준다(DEC-MEDIA-006). 5에서 원본을 대신 줄 때만 `private, no-store`(나중에 생길 사본 대신 원본이 캐시에 남지 않게). 저장소 장애는 503 (공통 2.6).
 - 방치된 세션 정리(앞단 B)는 하지 않는다. 완료된 세션의 파일만 내려주므로 정리 결과와 관계없다.
 
 #### REQ-MEDIA-004 앨범에 저장 (API-MEDIA-003, 앱)
@@ -206,7 +209,7 @@ App                              API                                   DB / 오�
 | workout-session WO-002 | 운동 완료 팝업 | 저장하기 (고른 파일마다) | API-MEDIA-001 `POST /api/v1/workout-sessions/{sessionId}/media` |
 | workout-session WO-002 | 운동 완료 팝업 | 저장하기 (모두 올린 뒤) / 건너뛰기 | workout-session API-WORKOUT-003 `POST /api/v1/workout-sessions/{sessionId}/complete` |
 | workout-history WO-003 | 운동 기록 달력 | 날짜 선택 (오운완 인증 목록) | workout-history API-WORKOUT-008 `media[]`, 미리보기 API-MEDIA-002 |
-| MEDIA-001 | 미디어 뷰어 | 사진·동영상 크게 보기, 넘기기 | API-MEDIA-003 `GET /api/v1/media/{mediaId}/original` |
+| MEDIA-001 | 미디어 뷰어 | 사진·동영상 크게 보기, 넘기기 | API-MEDIA-004 `GET /api/v1/media/{mediaId}/display` |
 | MEDIA-001 | 미디어 뷰어 | 저장 (지금 보고 있는 것 하나) | API-MEDIA-003 `GET /api/v1/media/{mediaId}/original` (`Range` 없이 전체) |
 
 ### 4.2 화면별 연계 상세
@@ -216,7 +219,7 @@ App                              API                                   DB / 오�
 - 필요 데이터: 진행 중 세션 ID (workout-session API-WORKOUT-002)
 - 사용자 입력: "사진 또는 동영상 추가"로 앨범에서 고르거나 바로 촬영(요구사항 TODO-006). 앱은 "고른 개수/5"를 보여주고 고를 때 5개까지만 받고, 형식(JPEG·PNG·HEIC·MP4·MOV)과 크기·길이를 미리 확인해 넘는 파일은 고르지 않게 안내한다(서버가 다시 확인한다).
 - API 호출:
-  - **저장하기**: 아직 올리지 않은 파일을 고른 순서대로 하나씩 API-MEDIA-001. 파일마다 진행 상황을 보여준다(NFR-PERF-001). 받은 `id`를 고른 순서대로 기억한다. 모두 성공하면 API-WORKOUT-003 `{ "mediaIds": [고른 순서] }`.
+  - **저장하기**: 아직 올리지 않은 파일을 고른 순서대로 꺼내 **3개까지 동시에** API-MEDIA-001 (DEC-MEDIA-011). 하나가 실패하면 새 파일은 꺼내지 않고, 올리던 것은 끝까지 기다린다(다시 시도할 때 같은 파일을 두 번 올리지 않게). 파일마다 진행 상황을 보여준다(NFR-PERF-001). 받은 `id`를 파일별로 기억한다. 모두 성공하면 API-WORKOUT-003 `{ "mediaIds": [고른 순서] }`.
   - **건너뛰기**: API-WORKOUT-003 `{ "mediaIds": [] }` (이미 올린 임시 파일은 서버가 지운다).
   - **팝업 닫기**: 호출 없음. 세션은 진행 중. 이미 올린 임시 파일 ID는 앱이 버린다(서버의 임시 파일은 다음 완료·취소·자동 정리 때 지워진다).
 - 성공 처리: 완료 200 → 홈(WO-001), 진행 중 카드 사라짐
@@ -240,14 +243,14 @@ App                              API                                   DB / 오�
 
 #### MEDIA-001 미디어 뷰어 (Figma `media-viewer-popup`)
 - 진입 조건: WO-003에서 사진·동영상 하나를 누름 (그날 `media[]`와 누른 위치)
-- 필요 데이터: `media[]`의 `originalUrl`, `mediaType`. 위치 표시 "1 / 3"은 앱이 계산
+- 필요 데이터: `media[]`의 `displayUrl`, `originalUrl`(저장), `mediaType`. 위치 표시 "1 / 3"은 앱이 계산
 - 사용자 입력: 옆으로 넘기기, 저장(REQ-MEDIA-004), 닫기
-- API 호출: 보이는 항목의 `originalUrl`(API-MEDIA-003). 동영상은 재생기가 `Range` 요청으로 필요한 부분만 받는다. 지금 보이는 동영상만 재생
+- API 호출: 보이는 항목의 `displayUrl`(API-MEDIA-004). 동영상은 재생기가 `Range` 요청으로 필요한 부분만 받는다. 지금 보이는 동영상만 재생
   - **저장**: 지금 보이는 항목의 `originalUrl`을 `Range` 없이 받아 기기 앨범에 넣는다(3.2 REQ-MEDIA-004)
 - 성공 처리: 닫으면 WO-003. 저장 성공 → "앨범에 저장했어요" 안내, 뷰어에 그대로 남는다
 - 실패 처리: 404 `MEDIA_NOT_FOUND`(다른 기기에서 그날 기록을 지움) → 안내 후 닫고 WO-003 다시 조회 / 503·네트워크 → 다시 시도
   - 저장 중: 앨범 권한 거부 → "사진을 저장하려면 앨범 접근을 허용해 주세요" + 기기 설정으로 가기 (ERR-008) / 503·네트워크·기기 저장 실패 → "저장하지 못했어요" + 다시 저장 (ERR-009) / 404 → 위와 같다 (ERR-007)
-- 로딩 상태: 원본을 받는 동안 미리보기(`previewUrl`)를 흐리게 먼저 보여준다. 저장 중에는 진행 상황을 보여주고 저장 버튼을 비활성(같은 항목을 두 번 받지 않게). 넘기거나 닫아도 진행 중인 저장은 끝까지 한다
+- 로딩 상태: 보기용 사본을 받는 동안 미리보기(`previewUrl`)를 흐리게 먼저 보여준다. 저장 중에는 진행 상황을 보여주고 저장 버튼을 비활성(같은 항목을 두 번 받지 않게). 넘기거나 닫아도 진행 중인 저장은 끝까지 한다
 - 빈 상태: 해당 없음
 
 ---
@@ -262,7 +265,8 @@ URL·필드·파일 업로드 규칙은 공통 설계 5장을 따른다.
 | (workout-session API-WORKOUT-003) | POST | /api/v1/workout-sessions/{sessionId}/complete | 필요 | `mediaIds`로 붙이며 완료 | REQ-MEDIA-001, IF-MEDIA-001 |
 | (workout-history API-WORKOUT-008) | GET | /api/v1/workout-days/{date} | 필요 | 그날 기록과 `media[]` 목록 | REQ-MEDIA-002, IF-MEDIA-002 |
 | API-MEDIA-002 | GET | /api/v1/media/{mediaId}/preview | 필요 | 미리보기 JPEG | REQ-MEDIA-002, IF-MEDIA-003 |
-| API-MEDIA-003 | GET | /api/v1/media/{mediaId}/original | 필요 | 원본(사진·동영상), Range 지원. 크게 보기와 앨범 저장 | REQ-MEDIA-003, REQ-MEDIA-004, IF-MEDIA-003 |
+| API-MEDIA-003 | GET | /api/v1/media/{mediaId}/original | 필요 | 원본(사진·동영상), Range 지원. 앨범 저장 | REQ-MEDIA-004, IF-MEDIA-003 |
+| API-MEDIA-004 | GET | /api/v1/media/{mediaId}/display | 필요 | 보기용 사본, Range 지원. 크게 보기 | REQ-MEDIA-003, IF-MEDIA-003 |
 
 ### 5.2 공통 응답 모델
 **WorkoutMediaResponse** (API-MEDIA-001)
@@ -349,6 +353,19 @@ Validation: 경로 변수가 UUID 형식이 아니면 400. 범위가 파일 밖�
 
 Errors: API-MEDIA-002와 같다.
 
+#### API-MEDIA-004 보기용 사본 내려받기
+- 목적: 미디어 뷰어에서 사진을 크게 보고 동영상을 재생할 작은 사본을 준다(DEC-MEDIA-010). 원본(API-MEDIA-003)은 앨범 저장에만 쓴다.
+- Method / URL: `GET /api/v1/media/{mediaId}/display`
+- 인증: 필요
+- 관련 요구사항: REQ-MEDIA-003, IF-MEDIA-003, BR-001
+
+Request
+- Header (선택): `Range` — API-MEDIA-003과 같다
+
+Response `200 OK` / `206 Partial Content` — 본문이 보기용 사본, `Content-Type` = `image/jpeg`(사진) 또는 `video/mp4`(동영상), `Accept-Ranges: bytes`, `Cache-Control: private, max-age=31536000, immutable`. 사본이 아직 없으면 원본을 API-MEDIA-003과 같은 형식으로 주되 `Cache-Control: private, no-store` (3.2)
+
+Validation, Errors: API-MEDIA-003과 같다.
+
 ---
 
 ## 6. 데이터 설계
@@ -360,6 +377,7 @@ users 1 ── N workout_session 1 ── N workout_media
                                      │
                                      └─ 파일: users/{userId}/workout-sessions/{sessionId}/media/{mediaId}/original
                                               users/{userId}/workout-sessions/{sessionId}/media/{mediaId}/preview.jpg
+                                              users/{userId}/workout-sessions/{sessionId}/media/{mediaId}/display
 ```
 
 ### 6.2 테이블 정의
@@ -381,7 +399,7 @@ users 1 ── N workout_session 1 ── N workout_media
 - 조건 검사 `ck_workout_media_sort_order`: `sort_order`가 없거나 1 이상 10 이하. BR-005의 5개는 서비스가 확인하고, 이 검사는 상한을 줄이기 전에 붙은 기록까지 담는 바깥 한계다 (BR-005, DEC-MEDIA-008)
 - 조건 검사 `ck_workout_media_file_size`: `file_size`가 1 이상 104,857,600(100 × 1024 × 1024) 이하. 사진의 20MB 상한은 형식별이라 서비스가 확인한다 (BR-005)
 - 조건 검사 `ck_workout_media_type`: `media_type`과 `content_type`이 맞는다(PHOTO ↔ image/*, VIDEO ↔ video/*) (BR-006)
-- 파일 키는 저장하지 않는다. `users/{userId}/workout-sessions/{workout_session_id}/media/{id}/` 아래 `original`과 `preview.jpg`로 정해진다(계산할 수 있는 값은 저장하지 않는다, DEC-MEDIA-002). 원본의 형식은 `content_type`
+- 파일 키는 저장하지 않는다. `users/{userId}/workout-sessions/{workout_session_id}/media/{id}/` 아래 `original`, `preview.jpg`, `display`로 정해진다(계산할 수 있는 값은 저장하지 않는다, DEC-MEDIA-002). 원본의 형식은 `content_type`, 보기용 사본의 형식은 `media_type`으로 정해진다(사진 JPEG, 동영상 MP4). 사본이 만들어졌는지는 저장하지 않고 저장소에 있는지로 본다(DEC-MEDIA-010)
 - 수정되는 컬럼은 `sort_order` 한 번뿐이라 `updated_at`을 두지 않는다.
 
 ### 6.3 인덱스
@@ -394,7 +412,7 @@ users 1 ── N workout_session 1 ── N workout_media
 - 파일: DB 행을 지운 트랜잭션의 **커밋 후 작업**으로 지운다(공통 2.6).
   | 경로 | 지우는 파일 |
   |-----|----------|
-  | 운동 완료(고르지 않은 임시 파일) | 그 미디어의 `original`, `preview.jpg` |
+  | 운동 완료(고르지 않은 임시 파일) | 그 미디어의 `original`, `preview.jpg`, `display` |
   | 운동 취소(workout-session REQ-WORKOUT-010), 날짜 단위 삭제(REQ-WORKOUT-005, API-WORKOUT-009) | 세션 접두어 `users/{userId}/workout-sessions/{sessionId}/` 전체(그날 삭제한 세션마다) |
   | 방치된 세션 자동 완료(REQ-WORKOUT-006) | 그 세션의 임시 파일 전부(완료되지만 고른 파일이 없다) |
   | 방치된 세션 자동 삭제(REQ-WORKOUT-006) | 세션 접두어 전체 |
@@ -475,11 +493,11 @@ workout-common 설계 6.5의 스키마 변경 3 다음에 적용한다.
 ### 10.1 컴포넌트 구성
 | 도메인 | 컴포넌트 | 역할 | 책임 |
 |-------|---------|-----|-----|
-| media | WorkoutMediaController | API 진입점 | API-MEDIA-001 ~ 003 (API-MEDIA-003은 앨범 저장에도 쓴다, 변경 없음) |
-| media | WorkoutMediaService | 서비스 | 3.2 (1)의 순서: 빠른 확인 → 처리 → 저장 → 잠금 후 기록, 실패 시 파일 삭제. 붙이기(`attach`), 내려받기 권한 확인(`download`), 세션 삭제 경로의 파일 삭제(`deleteFilesOfSessions`, `discardStaged`) |
+| media | WorkoutMediaController | API 진입점 | API-MEDIA-001 ~ 004 |
+| media | WorkoutMediaService | 서비스 | 3.2 (1)의 순서: 빠른 확인 → 처리 → 저장 → 잠금 후 기록, 실패 시 파일 삭제, 동영상 사본 변환 대기열(한 번에 하나, 메모리). 붙이기(`attach`), 내려받기 권한 확인(`download`), 세션 삭제 경로의 파일 삭제(`deleteFilesOfSessions`, `discardStaged`) |
 | media | WorkoutMediaRepository | 저장소 | 행 저장, 세션별 개수, 세션별 조회, 고르지 않은 행 삭제 |
 | common | ObjectStorage | 파일 저장소 | 공통 10.1 |
-| common | MediaProcessor | 미디어 처리기 | 형식 판별, 길이, 미리보기 (공통 10.1) |
+| common | MediaProcessor | 미디어 처리기 | 형식 판별, 길이, 미리보기·사진 사본(`still`), 동영상 사본(`transcode`) (공통 10.1) |
 | session | WorkoutSessionService.complete | 서비스 | `mediaIds` 처리(3.2 (2)), workout-session 설계 |
 
 ### 10.2 구현 순서
@@ -522,6 +540,9 @@ workout-common 설계 6.5의 스키마 변경 3 다음에 적용한다.
 | DEC-MEDIA-007 | 원본은 `Range` 요청을 지원하고 저장소의 범위 읽기로 넘긴다 | 동영상 재생기는 범위 요청으로 앞부분부터 재생하고 넘겨 보기를 한다. 100MB 동영상을 다 받은 뒤 재생하지 않아도 된다 | 전체만 지원: 긴 동영상의 첫 재생이 늦고 넘겨 보기가 안 됨 |
 | DEC-MEDIA-008 | 세션당 개수를 5개로 줄여도(요구사항 v0.5) 조건 검사 `ck_workout_media_sort_order`는 1~10으로 두고, 5개는 업로드·완료 검증에서 지킨다 | 줄이기 전에 6~10개를 붙여 완료한 기록이 있으면 검사를 1~5로 바꾸는 스키마 변경이 실패한다. 그 기록은 고칠 수 없고 그대로 보여준다(요구사항 8.2). 새로 붙는 행은 모두 완료 검증(5개 이하)을 거친다 | 검사를 1~5로 바꿈: 기존 기록을 지우거나 순서를 바꿔야 함 / 새 행만 검사하는 제약: DB에 따라 지원이 다르고 얻는 것이 없음 |
 | DEC-MEDIA-009 | 앨범 저장(REQ-MEDIA-004)은 새 API 없이 원본 내려받기(API-MEDIA-003)를 그대로 쓴다. 확장자는 앱이 `Content-Type`으로 정한다 | 저장할 것이 원본 그대로이고(BR-008) 권한 확인(BR-001)도 같다. 앱은 응답 본문을 파일로 받아 앨범에 넣으므로, 브라우저용 `Content-Disposition: attachment`나 파일 이름이 필요 없다. 서버 코드·테스트를 늘리지 않는다 | 저장 전용 API(`/download` 또는 `?download=true` + `Content-Disposition`): 같은 파일을 같은 검사로 두 번 내려주고 앱에서 쓰는 곳이 없음 / 원래 파일 이름 저장: 민감 정보라 저장하지 않기로 함(7.3) |
+
+| DEC-MEDIA-010 | 업로드 때 보기용 사본을 만들어 뷰어는 사본(API-MEDIA-004)을 보고, 원본은 바꾸지 않고 앨범 저장에만 쓴다. 사진은 업로드 중에 긴 변 2048 JPEG, 동영상은 응답 뒤 백그라운드에서 720p·30fps 이하 H.264 MP4(HDR은 SDR로). 사본이 없으면 원본을 캐시하지 않게 대신 준다 | iPhone 원본은 사진 3~12MB, 4K HEVC 동영상은 분당 170~400MB(약 50Mbps)라 휴대폰 망에서 크게 보기와 재생이 느렸다(v0.5). 사본은 사진 수백 KB, 동영상 분당 수 MB다. 동영상 변환은 서버에서 수십 초~수 분이라 업로드를 기다리게 하지 않는다. 원본을 유지하라는 사용자 결정(BR-008, REQ-MEDIA-003 원본 그대로) | 앱에서 압축 후 업로드: 원본이 남지 않음 / 동영상도 업로드 중 변환: 업로드가 더 느려짐 / 사본 상태 컬럼: 스키마 변경이 필요하고 저장소와 어긋날 수 있음 / 재시작해도 남는 변환 대기열: 재시작 때 빠진 동영상은 원본을 보여 줄 뿐이라 지금은 필요 없음 |
+| DEC-MEDIA-011 | 앱은 파일을 3개까지 동시에 올린다. 하나가 실패하면 새로 꺼내지 않고 올리던 것을 기다린 뒤 실패로 끝낸다 | 한 파일의 서버 처리(형식 판별·미리보기·저장) 시간과 다음 파일의 전송이 겹쳐 전체 시간이 준다. 서버는 파일마다 독립이고, 개수 상한(BR-005)은 세션 잠금 안에서 다시 확인하므로 동시에 와도 넘지 않는다 | 하나씩(v0.4): 처리 시간이 그대로 더해짐 / 5개 모두 동시에: 망이 좁으면 각 파일이 늦게 끝나 진행 표시가 오래 멈춘다 |
 
 ## 부록 B. 설계 미결정 사항
 - **D-TODO-MEDIA-001** ~~날짜별 목록, 크게 보기, 없는 파일 오류, 미디어 뷰어 연계~~ **결정됨 (v0.2):** 3.2, 4.2, API-MEDIA-002·003, workout-history API-WORKOUT-008

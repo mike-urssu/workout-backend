@@ -58,7 +58,7 @@ class WorkoutMediaApiTest {
     }
 
     @Test
-    fun `REQ-MEDIA-001 사진을 올리면 원본과 미리보기가 세션 아래에 저장된다`() {
+    fun `REQ-MEDIA-001 사진을 올리면 원본과 미리보기, 보기용 사본이 세션 아래에 저장된다`() {
         val id = idOf(upload(session, file("photo.jpg", jpeg())).andExpect {
             status { isCreated() }
             jsonPath("$.mediaType") { value("PHOTO") }
@@ -67,7 +67,7 @@ class WorkoutMediaApiTest {
         })
 
         assertEquals(
-            listOf("media/$id/original", "media/$id/preview.jpg").map { "${prefix(session)}$it" }.sorted(),
+            listOf("media/$id/display", "media/$id/original", "media/$id/preview.jpg").map { "${prefix(session)}$it" },
             storage.keys(prefix(session)).sorted(),
         )
     }
@@ -75,11 +75,46 @@ class WorkoutMediaApiTest {
     @Test
     fun `BR-006 PNG 사진과 MP4 동영상도 올릴 수 있고 형식은 내용으로 판별한다`() {
         upload(session, file("photo.png", png())).andExpect { jsonPath("$.contentType") { value("image/png") } }
-        upload(session, file("clip.bin", video(seconds = 2))).andExpect {
+        val clip = idOf(upload(session, file("clip.bin", video(seconds = 2))).andExpect {
             status { isCreated() }
             jsonPath("$.mediaType") { value("VIDEO") }
             jsonPath("$.contentType") { value("video/mp4") }
+        })
+        awaitKey("${prefix(session)}media/$clip/display") // so the background copy does not land in the next test
+    }
+
+    @Test
+    fun `REQ-MEDIA-003 크게 보기는 보기용 사본으로 받고 동영상 사본은 업로드가 끝난 뒤 만들어진다`() {
+        val photo = idOf(upload(session, file("photo.png", png())))
+        val clip = idOf(upload(session, file("clip.mov", video(seconds = 2))))
+        awaitKey("${prefix(session)}media/$clip/display")
+        complete(session, """{"mediaIds": ["$photo", "$clip"]}""")
+
+        download(photo, "display").andExpect {
+            status { isOk() }
+            content { contentType(MediaType.IMAGE_JPEG) }
+            header { string("Cache-Control", "private, max-age=31536000, immutable") }
         }
+        download(clip, "display", range = "bytes=0-99").andExpect {
+            status { isPartialContent() }
+            content { contentType("video/mp4") }
+            header { string("Accept-Ranges", "bytes") }
+        }
+    }
+
+    @Test
+    fun `REQ-MEDIA-003 보기용 사본이 아직 없으면 원본을 캐시하지 않게 준다`() {
+        val photo = jpeg()
+        val id = idOf(upload(session, file("photo.jpg", photo)))
+        complete(session, """{"mediaIds": ["$id"]}""")
+        storage.delete("${prefix(session)}media/$id/display")
+
+        val body = download(id, "display").andExpect {
+            status { isOk() }
+            content { contentType(MediaType.IMAGE_JPEG) }
+            header { string("Cache-Control", "private, no-store") }
+        }.andReturn().response.contentAsByteArray
+        assertEquals(photo.toList(), body.toList())
     }
 
     @Test
@@ -97,7 +132,7 @@ class WorkoutMediaApiTest {
             },
         )
         assertEquals(emptyList(), storage.keys("${prefix(session)}media/$dropped/"))
-        assertEquals(4, storage.keys(prefix(session)).size)
+        assertEquals(6, storage.keys(prefix(session)).size)
     }
 
     @Test
@@ -281,6 +316,14 @@ class WorkoutMediaApiTest {
     private fun prefix(sessionId: String, user: SignedInUser = me) = "users/${user.id}/workout-sessions/$sessionId/"
 
     private fun mediaCount() = jdbc.queryForObject("SELECT count(*) FROM workout_media", Int::class.java)
+
+    private fun awaitKey(key: String) {
+        repeat(300) {
+            if (key in storage.keys(key)) return
+            Thread.sleep(100)
+        }
+        error("$key was not stored within 30s")
+    }
 
     private fun sessionWithSet(user: SignedInUser): String {
         val auth = "Bearer ${user.token}"

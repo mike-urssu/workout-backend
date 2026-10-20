@@ -158,6 +158,7 @@ class WorkoutDayApiTest {
             jsonPath("$.media[0].mediaType") { value("PHOTO") }
             jsonPath("$.media[0].contentType") { value("image/jpeg") }
             jsonPath("$.media[0].previewUrl") { value("/api/v1/media/$second/preview") }
+            jsonPath("$.media[0].displayUrl") { value("/api/v1/media/$second/display") }
             jsonPath("$.media[0].originalUrl") { value("/api/v1/media/$second/original") }
         }
     }

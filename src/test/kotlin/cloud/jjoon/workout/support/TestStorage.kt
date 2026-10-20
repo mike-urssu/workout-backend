@@ -38,5 +38,9 @@ class TestStorage(
     fun keys(prefix: String = ""): List<String> =
         s3.listObjectsV2Paginator(ListObjectsV2Request.builder().bucket(bucket).prefix(prefix).build()).contents().map { it.key() }
 
-    fun deleteAll() = keys().forEach { key -> s3.deleteObject { it.bucket(bucket).key(key) } }
+    fun delete(key: String) {
+        s3.deleteObject { it.bucket(bucket).key(key) }
+    }
+
+    fun deleteAll() = keys().forEach(::delete)
 }

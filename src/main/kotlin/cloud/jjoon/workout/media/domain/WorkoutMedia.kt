@@ -57,5 +57,11 @@ class WorkoutMedia(
         fun originalKey(userId: UUID, sessionId: UUID, mediaId: UUID) = "${sessionPrefix(userId, sessionId)}media/$mediaId/original"
 
         fun previewKey(userId: UUID, sessionId: UUID, mediaId: UUID) = "${sessionPrefix(userId, sessionId)}media/$mediaId/preview.jpg"
+
+        /** A photo's 2048px JPEG or a video's 720p MP4 for the viewer (workout-media DEC-MEDIA-010). */
+        fun displayKey(userId: UUID, sessionId: UUID, mediaId: UUID) = "${sessionPrefix(userId, sessionId)}media/$mediaId/display"
+
+        fun keys(userId: UUID, sessionId: UUID, mediaId: UUID) =
+            listOf(originalKey(userId, sessionId, mediaId), previewKey(userId, sessionId, mediaId), displayKey(userId, sessionId, mediaId))
     }
 }

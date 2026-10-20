@@ -127,6 +127,7 @@ data class DayMediaResponse(
     val mediaType: MediaKind,
     val contentType: String,
     val previewUrl: String,
+    val displayUrl: String,
     val originalUrl: String,
 ) {
     companion object {
@@ -135,6 +136,7 @@ data class DayMediaResponse(
             mediaType = media.mediaType,
             contentType = media.contentType,
             previewUrl = "/api/v1/media/${media.id}/preview",
+            displayUrl = "/api/v1/media/${media.id}/display",
             originalUrl = "/api/v1/media/${media.id}/original",
         )
     }
