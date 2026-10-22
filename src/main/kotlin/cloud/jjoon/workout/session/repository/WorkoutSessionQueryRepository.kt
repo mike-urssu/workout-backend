@@ -56,33 +56,39 @@ class WorkoutSessionQueryRepository(private val dsl: DSLContext) {
     }
 
     /**
-     * The exercise's sets from the user's latest completed session that recorded it (BR-016), in one query.
-     * In-progress sessions and sessions where the exercise has no sets are skipped.
+     * The user's completed sessions that recorded the exercise (BR-016), one per page, most recent first (REQ-SET-006).
+     * In-progress sessions and sessions where the exercise has no sets are skipped. Two queries: the count, then the page.
      */
-    fun findLastRecord(userId: UUID, exerciseId: UUID): LastRecord? {
+    fun findRecords(userId: UUID, exerciseId: UUID, page: Int): ExerciseRecordPage {
         val wse = WORKOUT_SESSION_EXERCISE
         val ws = WORKOUT_SESSION
-        val latest = select(wse.ID)
+        val recorded = ws.USER_ID.eq(userId)
+            .and(ws.STATUS.eq(WorkoutSessionStatus.COMPLETED.name))
+            .and(wse.EXERCISE_ID.eq(exerciseId))
+            .andExists(selectOne().from(WORKOUT_SET).where(WORKOUT_SET.WORKOUT_SESSION_EXERCISE_ID.eq(wse.ID)))
+        val total = dsl.fetchCount(wse.join(ws).on(ws.ID.eq(wse.WORKOUT_SESSION_ID)), recorded)
+        // A session holds an exercise once (ux_workout_session_exercise_session_exercise), so one row is one session.
+        val picked = select(wse.ID)
             .from(wse)
             .join(ws).on(ws.ID.eq(wse.WORKOUT_SESSION_ID))
-            .where(wse.EXERCISE_ID.eq(exerciseId))
-            .and(ws.USER_ID.eq(userId))
-            .and(ws.STATUS.eq(WorkoutSessionStatus.COMPLETED.name))
-            .andExists(selectOne().from(WORKOUT_SET).where(WORKOUT_SET.WORKOUT_SESSION_EXERCISE_ID.eq(wse.ID)))
+            .where(recorded)
             .orderBy(ws.PERFORMED_DATE.desc(), ws.STARTED_AT.desc(), ws.ID.desc())
             .limit(1)
+            .offset(page)
         val rows = dsl.select(ws.PERFORMED_DATE, WORKOUT_SET.WEIGHT, WORKOUT_SET.REPETITIONS)
             .from(wse)
             .join(ws).on(ws.ID.eq(wse.WORKOUT_SESSION_ID))
             .join(WORKOUT_SET).on(WORKOUT_SET.WORKOUT_SESSION_EXERCISE_ID.eq(wse.ID))
-            .where(wse.ID.eq(field(latest)))
+            .where(wse.ID.eq(field(picked)))
             .orderBy(WORKOUT_SET.CREATED_AT, WORKOUT_SET.ID)
             .fetch()
-        if (rows.isEmpty()) return null
-        return LastRecord(
-            performedDate = rows.first().value1(),
-            sets = rows.mapIndexed { index, row -> LastRecordSet(index + 1, row.value2(), row.value3()) },
+        val content = if (rows.isEmpty()) emptyList() else listOf(
+            ExerciseRecord(
+                performedDate = rows.first().value1(),
+                sets = rows.mapIndexed { index, row -> ExerciseRecordSet(index + 1, row.value2(), row.value3()) },
+            ),
         )
+        return ExerciseRecordPage(content, page, size = 1, totalElements = total.toLong(), totalPages = total)
     }
 
     /** Completes stale sessions that have sets, ending them at their last set (BR-013). Idempotent. */
@@ -160,6 +166,15 @@ data class SessionExerciseRow(
 
 data class SetRow(val id: UUID, val weight: BigDecimal, val repetitions: Int, val createdAt: Instant)
 
-data class LastRecord(val performedDate: LocalDate, val sets: List<LastRecordSet>)
+/** The common page response (architecture 5장) with one session per page (DEC-WORKOUT-032). */
+data class ExerciseRecordPage(
+    val content: List<ExerciseRecord>,
+    val page: Int,
+    val size: Int,
+    val totalElements: Long,
+    val totalPages: Int,
+)
 
-data class LastRecordSet(val setNumber: Int, val weight: BigDecimal, val repetitions: Int)
+data class ExerciseRecord(val performedDate: LocalDate, val sets: List<ExerciseRecordSet>)
+
+data class ExerciseRecordSet(val setNumber: Int, val weight: BigDecimal, val repetitions: Int)

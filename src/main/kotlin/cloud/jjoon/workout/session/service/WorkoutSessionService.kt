@@ -125,12 +125,6 @@ class WorkoutSessionService(
         return setResponse(set)
     }
 
-    /** API-SET-005: empties the exercise before the previous record is loaded over it (BR-021). */
-    @Transactional
-    fun clearSets(userId: UUID, sessionId: UUID, sessionExerciseId: UUID) {
-        setRepository.deleteAllOf(sessionExerciseOf(editable(userId, sessionId), sessionExerciseId).id!!)
-    }
-
     /** Numbers are not stored, so nothing is renumbered (BR-007). */
     @Transactional
     fun deleteSet(userId: UUID, sessionId: UUID, sessionExerciseId: UUID, setId: UUID) {

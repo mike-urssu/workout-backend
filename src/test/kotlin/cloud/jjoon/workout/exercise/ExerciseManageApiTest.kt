@@ -198,7 +198,7 @@ class ExerciseManageApiTest {
         post("/api/v1/workout-sessions/$session/exercises", """{"exerciseId": "$othersBench"}""").andExpect {
             status { isForbidden() }
         }
-        mockMvc.get("/api/v1/exercises/$othersBench/last-record") { header("Authorization", "Bearer ${me.token}") }
+        mockMvc.get("/api/v1/exercises/$othersBench/records") { header("Authorization", "Bearer ${me.token}") }
             .andExpect { status { isForbidden() } }
         mockMvc.get("/api/v1/stats/exercise-volumes") {
             header("Authorization", "Bearer ${me.token}")

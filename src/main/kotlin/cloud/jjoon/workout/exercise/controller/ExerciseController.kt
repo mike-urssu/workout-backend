@@ -2,6 +2,7 @@ package cloud.jjoon.workout.exercise.controller
 
 import cloud.jjoon.workout.common.error.BusinessException
 import cloud.jjoon.workout.common.error.ErrorCode
+import cloud.jjoon.workout.common.error.ErrorResponse
 import cloud.jjoon.workout.exercise.repository.ExerciseCategoryRow
 import cloud.jjoon.workout.exercise.repository.ExerciseQueryRepository
 import cloud.jjoon.workout.exercise.repository.ExerciseRepository
@@ -10,12 +11,11 @@ import cloud.jjoon.workout.exercise.service.ExerciseOrderRequest
 import cloud.jjoon.workout.exercise.service.ExerciseRequest
 import cloud.jjoon.workout.exercise.service.ExerciseResponse
 import cloud.jjoon.workout.exercise.service.ExerciseService
-import cloud.jjoon.workout.session.repository.LastRecord
+import cloud.jjoon.workout.session.repository.ExerciseRecordPage
 import cloud.jjoon.workout.session.repository.WorkoutSessionQueryRepository
 import cloud.jjoon.workout.session.service.ExpiredSessionCleaner
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.http.HttpStatus
-import org.springframework.http.ResponseEntity
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
@@ -79,13 +79,19 @@ class ExerciseController(
         exerciseService.reorder(userId, categoryId, request.exerciseIds)
     }
 
-    /** API-SET-004: the sets to load into the recording screen; 204 when there is none (ERR-013, DEC-WORKOUT-021). */
-    @GetMapping("/api/v1/exercises/{exerciseId}/last-record")
-    fun lastRecord(@AuthenticationPrincipal userId: UUID, @PathVariable exerciseId: UUID): ResponseEntity<LastRecord> {
+    /** API-SET-006: the previous records popup, one completed session per page; none is an empty page (ERR-013, DEC-WORKOUT-032). */
+    @GetMapping("/api/v1/exercises/{exerciseId}/records")
+    fun records(
+        @AuthenticationPrincipal userId: UUID,
+        @PathVariable exerciseId: UUID,
+        @RequestParam(defaultValue = "0") page: Int,
+    ): ExerciseRecordPage {
+        if (page < 0) {
+            throw BusinessException(ErrorCode.VALIDATION_FAILED, errors = listOf(ErrorResponse.FieldError("page", "0 이상이어야 합니다.")))
+        }
         expiredSessionCleaner.cleanUp(userId)
         val exercise = exerciseRepository.findByIdOrNull(exerciseId) ?: throw BusinessException(ErrorCode.EXERCISE_NOT_FOUND)
         if (exercise.userId != userId) throw BusinessException(ErrorCode.FORBIDDEN) // BR-022
-        return sessionQueryRepository.findLastRecord(userId, exerciseId)
-            ?.let { ResponseEntity.ok(it) } ?: ResponseEntity.noContent().build()
+        return sessionQueryRepository.findRecords(userId, exerciseId, page)
     }
 }

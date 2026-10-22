@@ -118,17 +118,6 @@ class WorkoutSessionController(
         return sessionService.addSet(userId, sessionId, sessionExerciseId, request.weight!!, request.repetitions!!)
     }
 
-    @DeleteMapping("/{sessionId}/exercises/{sessionExerciseId}/sets")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    fun clearSets(
-        @AuthenticationPrincipal userId: UUID,
-        @PathVariable sessionId: UUID,
-        @PathVariable sessionExerciseId: UUID,
-    ) {
-        expiredSessionCleaner.cleanUp(userId)
-        sessionService.clearSets(userId, sessionId, sessionExerciseId)
-    }
-
     @PutMapping("/{sessionId}/exercises/{sessionExerciseId}/sets/{setId}")
     fun updateSet(
         @AuthenticationPrincipal userId: UUID,

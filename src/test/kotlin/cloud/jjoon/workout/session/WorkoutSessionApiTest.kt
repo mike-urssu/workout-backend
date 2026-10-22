@@ -511,11 +511,10 @@ class WorkoutSessionApiTest {
     }
 
     @Test
-    fun `BR-016 이전 기록은 그 종목을 마지막으로 완료한 세션의 세트다`() {
+    fun `REQ-SET-006 이전 기록은 그 종목을 완료한 세션을 최근부터 하나씩 넘겨 본다`() {
         val bench = operator.exerciseId("벤치프레스", me.id)
         val older = startedSessionId()
-        val olderBench = sessionExerciseId(older, bench)
-        addSet(older, olderBench, """{"weight": 60, "repetitions": 12}""")
+        addSet(older, sessionExerciseId(older, bench), """{"weight": 60, "repetitions": 12}""")
         complete(older)
         clock.advance(Duration.ofDays(1))
         val latest = startedSessionId()
@@ -528,26 +527,38 @@ class WorkoutSessionApiTest {
         val inProgress = startedSessionId()
         addSet(inProgress, sessionExerciseId(inProgress, bench), """{"weight": 80, "repetitions": 5}""")
 
-        lastRecord(bench).andExpect {
+        records(bench).andExpect {
             status { isOk() }
-            jsonPath("$.performedDate") { value("2026-10-06") }
-            jsonPath("$.sets[*].setNumber") { value(contains(1, 2)) }
-            jsonPath("$.sets[*].weight") { value(contains(70.0, 75.0)) }
-            jsonPath("$.sets[*].repetitions") { value(contains(8, 6)) }
+            jsonPath("$.page") { value(0) }
+            jsonPath("$.size") { value(1) }
+            jsonPath("$.totalElements") { value(2) }
+            jsonPath("$.totalPages") { value(2) }
+            jsonPath("$.content[0].performedDate") { value("2026-10-06") }
+            jsonPath("$.content[0].sets[*].setNumber") { value(contains(1, 2)) }
+            jsonPath("$.content[0].sets[*].weight") { value(contains(70.0, 75.0)) }
+            jsonPath("$.content[0].sets[*].repetitions") { value(contains(8, 6)) }
+        }
+        records(bench, page = "1").andExpect {
+            jsonPath("$.page") { value(1) }
+            jsonPath("$.content[0].performedDate") { value("2026-10-05") }
         }
     }
 
     @Test
-    fun `ERR-013 그 종목을 완료한 기록이 없으면 이전 기록은 내용 없음이다`() {
+    fun `ERR-013 그 종목을 완료한 기록이 없으면 이전 기록은 빈 페이지다`() {
         val bench = operator.exerciseId("벤치프레스", me.id)
         val inProgress = startedSessionId()
         addSet(inProgress, sessionExerciseId(inProgress, bench), """{"weight": 80, "repetitions": 5}""")
 
-        lastRecord(bench).andExpect { status { isNoContent() } }
+        records(bench).andExpect {
+            status { isOk() }
+            jsonPath("$.content") { isEmpty() }
+            jsonPath("$.totalElements") { value(0) }
+        }
     }
 
     @Test
-    fun `BR-001 다른 사용자의 기록은 이전 기록으로 쓰지 않는다`() {
+    fun `BR-001 다른 사용자의 기록은 이전 기록에 나오지 않는다`() {
         val bench = operator.exerciseId("벤치프레스", me.id)
         val other = users.signIn("other.user")
         val othersSession = startedSessionId(other)
@@ -555,56 +566,27 @@ class WorkoutSessionApiTest {
         mockMvc.post("/api/v1/workout-sessions/$othersSession/complete") { header("Authorization", "Bearer ${other.token}") }
             .andExpect { status { isOk() } }
 
-        lastRecord(bench).andExpect { status { isNoContent() } }
+        records(bench).andExpect { jsonPath("$.totalElements") { value(0) } }
     }
 
     @Test
-    fun `ERR-002 없는 운동의 이전 기록은 찾을 수 없다`() {
-        lastRecord(UUID.randomUUID()).andExpect {
+    fun `ERR-009 없는 운동의 이전 기록은 찾을 수 없다`() {
+        records(UUID.randomUUID()).andExpect {
             status { isNotFound() }
             jsonPath("$.code") { value("EXERCISE_NOT_FOUND") }
         }
     }
 
     @Test
-    fun `BR-021 불러오기 전에 그 종목의 세트만 모두 지운다`() {
-        val session = startedSessionId()
-        val bench = sessionExerciseId(session, operator.exerciseId("벤치프레스", me.id))
-        val squat = sessionExerciseId(session, operator.exerciseId("스쿼트", me.id))
-        addSet(session, bench, """{"weight": 60, "repetitions": 10}""")
-        addSet(session, bench, """{"weight": 65, "repetitions": 8}""")
-        addSet(session, squat, """{"weight": 100, "repetitions": 5}""")
+    fun `API-SET-006 페이지는 0 이상의 정수다`() {
+        val bench = operator.exerciseId("벤치프레스", me.id)
 
-        clearSets(session, bench).andExpect { status { isNoContent() } }
-        clearSets(session, bench).andExpect { status { isNoContent() } } // nothing left is still fine
-
-        inProgress().andExpect {
-            jsonPath("$.exercises[0].setCount") { value(0) }
-            jsonPath("$.exercises[1].setCount") { value(1) }
+        listOf("-1", "1.5").forEach { page ->
+            records(bench, page).andExpect {
+                status { isBadRequest() }
+                jsonPath("$.code") { value("VALIDATION_FAILED") }
+            }
         }
-    }
-
-    @Test
-    fun `BR-002 ERR-003 ERR-009 완료된 세션, 다른 사용자의 세션, 세션에 없는 종목의 세트는 지울 수 없다`() {
-        val completed = completedSession()
-        val other = users.signIn("other.user")
-        val othersSession = startedSessionId(other)
-        val othersBench = sessionExerciseId(othersSession, operator.exerciseId("벤치프레스", other.id), other)
-        val mine = startedSessionId()
-
-        clearSets(completed.id, completed.sessionExerciseId).andExpect {
-            status { isConflict() }
-            jsonPath("$.code") { value("WORKOUT_SESSION_NOT_EDITABLE") }
-        }
-        clearSets(othersSession, othersBench).andExpect {
-            status { isForbidden() }
-            jsonPath("$.code") { value("FORBIDDEN") }
-        }
-        clearSets(mine, othersBench).andExpect {
-            status { isNotFound() }
-            jsonPath("$.code") { value("SESSION_EXERCISE_NOT_FOUND") }
-        }
-        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM workout_set", Int::class.java))
     }
 
     @Test
@@ -696,11 +678,11 @@ class WorkoutSessionApiTest {
         assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM workout_set", Int::class.java))
     }
 
-    private fun lastRecord(exerciseId: UUID, user: SignedInUser = me) =
-        mockMvc.get("/api/v1/exercises/$exerciseId/last-record") { header("Authorization", "Bearer ${user.token}") }
-
-    private fun clearSets(sessionId: String, sessionExerciseId: String, user: SignedInUser = me) =
-        mockMvc.delete(setsPath(sessionId, sessionExerciseId)) { header("Authorization", "Bearer ${user.token}") }
+    private fun records(exerciseId: UUID, page: String? = null) =
+        mockMvc.get("/api/v1/exercises/$exerciseId/records") {
+            header("Authorization", "Bearer ${me.token}")
+            page?.let { param("page", it) }
+        }
 
     private fun cancel(sessionId: String) =
         mockMvc.delete("/api/v1/workout-sessions/$sessionId") { header("Authorization", "Bearer ${me.token}") }
