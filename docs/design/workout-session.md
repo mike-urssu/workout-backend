@@ -1,6 +1,6 @@
 # 홈·운동 진행 설계 문서
 
-- 문서 버전: v0.8
+- 문서 버전: v0.9
 - 작성일: 2026-10-05
 - 상태: 초안
 - 요구사항: `docs/requirements/workout-session.md` (v0.7), 공통 `docs/requirements/workout-common.md` (v0.7)
@@ -15,6 +15,7 @@
 - 변경 이력:
   - v0.2 ~ v0.7: `workout-common.md` 변경 이력 참고 (분리 전 `workout-record.md`)
   - v0.8 (2026-10-09) — `workout-record.md` 설계 v0.7을 요구사항 분리(v0.7)에 맞춰 `workout-common.md`, `workout-session.md`, `workout-exercise.md`, `workout-history.md`로 나눔. 설계 ID와 내용은 바꾸지 않았다
+  - v0.9 (2026-10-22) — 요구사항 BR-017 폐기(workout-exercise 요구사항 v0.10) 반영. API-WORKOUT-002 설명에서 불러온 값 문장을 뺐다
 
 ---
 
@@ -100,7 +101,7 @@ workout-common 2장을 따른다.
    - 운동별: 세트 번호(1부터), `setCount`, `totalRepetitions`, `volume` = Σ(중량 × 반복 횟수), `firstSetAt` = 가장 먼저 추가된 세트의 `created_at`(세트가 없으면 null)
    - 부위별(`categories[]`): 세트가 1개 이상인 운동만 부위로 묶어 `setCount`, `volume`, 그 부위 운동의 `sessionExerciseIds`(추가 순). 부위 순서는 `exercise_category.sort_order`
    - 합계(`summary`): `exerciseCount`(세트가 1개 이상인 운동 수), `totalSets`, `totalRepetitions`, `totalVolume`, `durationSeconds`(진행 중이면 null)
-5. 200과 WorkoutSessionResponse. 불러왔지만 적용하지 않은 값은 서버에 없으므로 들어가지 않는다(BR-017, DEC-WORKOUT-022).
+5. 200과 WorkoutSessionResponse.
 
 #### REQ-WORKOUT-002 운동 세션 완료 (API-WORKOUT-003)
 1. (A), (B).

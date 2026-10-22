@@ -1,9 +1,9 @@
 # 운동 종목 관리 설계 문서
 
-- 문서 버전: v0.2
+- 문서 버전: v0.3
 - 작성일: 2026-10-10
 - 상태: 초안
-- 요구사항: `docs/requirements/workout-exercise-manage.md` (v0.4), 공통 `docs/requirements/workout-common.md` (v0.11)
+- 요구사항: `docs/requirements/workout-exercise-manage.md` (v0.5), 공통 `docs/requirements/workout-common.md` (v0.12)
 - 공통 설계: `docs/design/architecture.md` (v0.14), `docs/design/workout-common.md` (v0.9)
 - Figma: 6행 `종목 관리 목록`(131:531), `종목 추가`(131:629), `종목 수정`(131:680), `종목 삭제 확인`(131:729). 진입 버튼은 3행 `exercise-list`의 `manage-exercises-btn`(131:3)
 - 운동 기록 설계 묶음 (설계 ID와 요구사항 ID를 함께 쓴다, 색인은 `workout-common.md` 부록 D):
@@ -15,6 +15,7 @@
 - 변경 이력:
   - v0.1 (2026-10-10) — 최초 작성. 종목을 사용자 소유로 바꾸고(스키마 변경 5), 종목 추가·수정·삭제 API 3개를 더한다
   - v0.2 (2026-10-10) — 요구사항 v0.4 반영. 종목 순서 변경 API-EXERCISE-008 추가(REQ-EXERCISE-007, BR-031·032, ERR-018, DEC-WORKOUT-029 ~ 031). 스키마 변경 없음
+  - v0.3 (2026-10-22) — 이전 기록 API가 API-SET-004에서 API-SET-006으로 바뀐 것을 반영(workout-exercise v0.11). 소유 확인 방식은 같다
 
 ---
 
@@ -25,7 +26,7 @@
 
 ### 1.2 설계 범위
 - **포함:** REQ-EXERCISE-003 ~ 007, BR-022 ~ 032, ERR-016 ~ 018, IF-EXERCISE-004, IF-EXERCISE-005, 화면 EX-004 ~ EX-006, NFR-INTEG-003, NFR-LOG-001(종목 삭제)
-- **영향을 받는 기존 설계:** API-EXERCISE-001, 002, 004, API-SET-004 (workout-exercise), API-STATS-002, 003 (workout-stats), 테이블과 스키마 변경 (workout-common 6장). 바뀌는 내용은 4.3과 6장에 있고, 각 문서에도 반영했다.
+- **영향을 받는 기존 설계:** API-EXERCISE-001, 002, 004, API-SET-006 (workout-exercise, v0.3 전에는 API-SET-004), API-STATS-002, 003 (workout-stats), 테이블과 스키마 변경 (workout-common 6장). 바뀌는 내용은 4.3과 6장에 있고, 각 문서에도 반영했다.
 - **보류:** 없음
 - **제외:** 요구사항 8.1의 제외 항목(부위 순서 바꾸기, 기본 순서로 되돌리기·자동 정렬, 타깃 설명 입력, 부위 변경, 기본 목록으로 되돌리기, 기본 목록 변경을 기존 사용자에게 반영, 공유, 합치기, 삭제 취소, 검색)
 
@@ -39,7 +40,7 @@ workout-common 1.4를 따른다. 새로 필요한 기술 능력은 없다. DB �
 
 ### 1.5 설계 원칙
 1. **종목은 사용자 소유 데이터다:** 종목 조회와 변경은 모두 `exercise.user_id = userId` 조건을 가진다. 다른 사용자의 종목 ID로는 아무것도 읽거나 바꿀 수 없다.
-2. **지난 기록은 종목을 ID로 가리킨다:** 이름·부위를 고치면 지난 기록, 이전 기록 불러오기, 통계가 자동으로 새 값을 쓴다(BR-024). 기록 쪽에 이름이나 부위를 복사해 두지 않는다.
+2. **지난 기록은 종목을 ID로 가리킨다:** 이름·부위를 고치면 지난 기록, 이전 기록 조회, 통계가 자동으로 새 값을 쓴다(BR-024). 기록 쪽에 이름이나 부위를 복사해 두지 않는다.
 3. **기본 목록은 계정을 만들 때 DB가 넣는다:** 계정은 운영자가 SQL로만 만든다(auth DEC-AUTH-001). 애플리케이션은 그 순간을 알 수 없으므로 DB 자동 동작으로 보장한다(공통 DEC-ARCH-013과 같은 판단, DEC-WORKOUT-023).
 
 ### 1.6 요구사항 ↔ 설계 추적표
@@ -278,7 +279,7 @@ App                         API                                   DB
 | API-EXERCISE-001 부위의 운동 목록 | `exercise.user_id = userId`인 종목만. 정렬 `sort_order`, `created_at`, `id`. `nameEn`, `target`은 null일 수 있다 | BR-022, BR-023, BR-027, BR-028 |
 | API-EXERCISE-004 부위 목록 | `exerciseCount`는 본인 종목 수. 0일 수 있다 | BR-022, BR-030 |
 | API-EXERCISE-002 세션에 운동 추가 | 종목이 없으면 404 `EXERCISE_NOT_FOUND`, 다른 사용자의 종목이면 403 `FORBIDDEN` | BR-009, ERR-002, ERR-003 |
-| API-SET-004 이전 기록 조회 | 같은 소유 확인(404 / 403) | BR-022, ERR-003 |
+| API-SET-006 이전 기록 조회 | 같은 소유 확인(404 / 403) | BR-022, ERR-003 |
 | API-STATS-002 부위별 종목 목록 | 정렬 `sort_order`, `created_at`, `id` | workout-stats BR-017 |
 | API-STATS-003 종목별 볼륨 | 본인 종목 목록에 없는 `exerciseIds`(다른 사용자의 종목 포함)는 없는 종목과 같이 400 | workout-stats ERR-005, DEC-STATS-005 |
 | WorkoutSessionResponse, WorkoutDayResponse | `exercises[].nameEn`, `target`이 null일 수 있다. 이름·부위는 지금 값 | BR-024, BR-028 |
@@ -497,7 +498,7 @@ workout_session 1 ──── N workout_session_exercise 1 ──── N worko
 API-EXERCISE-005 ~ 007 모두 인증 필요 (NFR-SEC-001).
 
 ### 7.2 사용자별 데이터 접근 제한
-- 경로의 `exerciseId`(API-EXERCISE-006, 007, API-SET-004)와 본문의 `exerciseId`(API-EXERCISE-002): 종목 조회 → 없으면 404 `EXERCISE_NOT_FOUND` → `user_id` 불일치면 403 `FORBIDDEN` (ERR-003, DEC-WORKOUT-007과 같은 방식).
+- 경로의 `exerciseId`(API-EXERCISE-006, 007, API-SET-006)와 본문의 `exerciseId`(API-EXERCISE-002): 종목 조회 → 없으면 404 `EXERCISE_NOT_FOUND` → `user_id` 불일치면 403 `FORBIDDEN` (ERR-003, DEC-WORKOUT-007과 같은 방식).
 - 목록·집계(API-EXERCISE-001, 004, API-STATS-002)는 조회 조건 `exercise.user_id = userId`.
 - API-STATS-003의 `exerciseIds`는 본인 종목만 받는다. 다른 사용자의 종목은 "없는 종목"과 같이 400이다(workout-stats DEC-STATS-005).
 - 종목 삭제는 본인 진행 중 세션만 잠그고, 본인 종목을 가진 세션만 지운다. 세션 운동은 종목과 같은 사용자의 세션에만 있다(6.5 확인 항목).
@@ -537,7 +538,7 @@ API-EXERCISE-005 ~ 007 모두 인증 필요 (NFR-SEC-001).
 |--------|---------|----------|----------|
 | NFR-PERF-001 | p95 500ms | 추가·수정: 쿼리 3~4회(부위 확인, 같은 이름 확인, 최대 순서, 저장). 삭제: cleanUp + 잠금 2회 + 완료 세션 조회 1회 + 삭제 1회 + 빈 세션 삭제 1회. 함께 삭제는 `idx_workout_session_exercise_exercise`로 찾는다 | 한 종목에 세션 1,000건이 있을 때 삭제 응답 시간 측정 |
 | NFR-PERF-002 | 기록이 많아도 성능 유지 | 기존 조회는 `exercise.user_id` 조건이 더해질 뿐 시작점(사용자 세션 인덱스)은 같다 | workout-common 9장과 같다 |
-| NFR-SEC-002 | 본인 데이터만 | 7.2. 순서 변경은 잠금 조회에 `user_id = userId` 조건을 걸어, 다른 사용자의 종목 ID는 "목록에 없는 종목"(409)이 된다 | 다른 사용자의 종목 ID로 API-EXERCISE-002, 006, 007, API-SET-004가 403, API-STATS-003이 400인지 테스트 |
+| NFR-SEC-002 | 본인 데이터만 | 7.2. 순서 변경은 잠금 조회에 `user_id = userId` 조건을 걸어, 다른 사용자의 종목 ID는 "목록에 없는 종목"(409)이 된다 | 다른 사용자의 종목 ID로 API-EXERCISE-002, 006, 007, API-SET-006이 403, API-STATS-003이 400인지 테스트 |
 | NFR-AVAIL-001 | 부분 저장 없음 | 삭제 2 ~ 6을 한 트랜잭션, 파일은 커밋 후 | 6에서 강제 예외 시 종목·세트·세션 모두 그대로인지 테스트 |
 | NFR-INTEG-003 | 종목 삭제 시 기록이 남지 않음 | 참조(함께 삭제) `workout_session_exercise.exercise_id` | 삭제 후 그 종목의 세션 운동·세트 0건 테스트 |
 | NFR-LOG-001 | 종목 삭제 추적 | INFO `exercise.deleted`(userId, exerciseId, deletedSetCount, deletedSessionCount), 지운 세션마다 `workout_session.deleted` | 로그 출력 확인 테스트 |
